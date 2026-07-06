@@ -1,0 +1,36 @@
+# --- Regenerable / heavy (never committed) ---
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+node_modules/
+ui/dist/
+.ruff_cache/
+.pytest_cache/
+*.corrupt
+*.log
+
+# --- Secrets (kept OUT of git history; preserved in the zip backup) ---
+.env
+
+# --- Local-only backup artifacts (not source, not committed) ---
+MALAR_V2_backup_*.zip
+ziJtlgHN
+
+# --- Stray test domains from development (keep only the real specs) ---
+domains/*.yaml
+!domains/raman_virus.yaml
+!domains/manufacturing.yaml
+!domains/2d_materials.yaml
+
+# --- Per-domain runtime data (keep only the real trained domain) ---
+data/domains/*/
+!data/domains/raman_virus/
+data/domains/registry.json.corrupt
+
+# Old global run artifacts (regenerable)
+data/artifacts/
+data/snapshots/
+data/checkpoints/
+data/*.json

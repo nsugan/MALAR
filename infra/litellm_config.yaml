@@ -1,0 +1,86 @@
+# The ONE place providers are wired. MALAR agents reference ALIASES only; the model,
+# endpoint and key behind each alias are now pulled from environment variables (.env)
+# via LiteLLM's `os.environ/VAR` interpolation — so you can swap the local Ollama tag or
+# point an alias at any cloud provider WITHOUT editing code or this file.
+#
+# Local (Ollama) is the default; cloud providers are OPT-IN (they send data off-box and
+# need an API key). To make an agent use a cloud provider, set its alias in .env, e.g.
+#   LLM_REASONER_ALIAS=malar-glm
+# To change the local model (e.g. a future gemma tag), just set OLLAMA_REASONER_MODEL.
+model_list:
+  # ---- Local, no egress (default). Set the tag you pulled in OLLAMA_*_MODEL. ----
+  - model_name: malar-reasoner
+    litellm_params:
+      model: os.environ/OLLAMA_REASONER_MODEL      # e.g. ollama/gemma4:e4b
+      api_base: os.environ/OLLAMA_BASE_URL
+      think: false              # Gemma4 is a reasoning model; answer directly (no hidden thinking)
+  - model_name: malar-fast
+    litellm_params:
+      model: os.environ/OLLAMA_FAST_MODEL          # e.g. ollama/gemma4:e4b
+      api_base: os.environ/OLLAMA_BASE_URL
+      think: false              # Gemma4 is a reasoning model; answer directly (no hidden thinking)
+  - model_name: malar-vision
+    litellm_params:
+      model: os.environ/OLLAMA_VISION_MODEL        # e.g. ollama/gemma4:e4b (multimodal)
+      api_base: os.environ/OLLAMA_BASE_URL
+      think: false              # Gemma4 is a reasoning model; answer directly (no hidden thinking)
+
+  # ---- Cloud providers (OPT-IN; require keys in .env; data leaves the box) ----
+  - model_name: malar-claude            # Anthropic Claude
+    litellm_params:
+      model: os.environ/CLAUDE_MODEL
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: malar-openai            # OpenAI ChatGPT
+    litellm_params:
+      model: os.environ/OPENAI_MODEL
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: malar-deepseek          # DeepSeek
+    litellm_params:
+      model: os.environ/DEEPSEEK_MODEL
+      api_key: os.environ/DEEPSEEK_API_KEY
+
+  # ---- OpenAI-compatible cloud providers (set model + api_base + key in .env) ----
+  # Any provider exposing an OpenAI-style /v1 endpoint works here. The *_MODEL var
+  # carries the full model string (default prefix openai/ routes via the OpenAI client).
+  - model_name: malar-glm               # Zhipu GLM (e.g. glm-4.6)
+    litellm_params:
+      model: os.environ/GLM_MODEL
+      api_base: os.environ/GLM_API_BASE
+      api_key: os.environ/GLM_API_KEY
+  - model_name: malar-kimi              # Moonshot Kimi (e.g. kimi-k2 / moonshot-v1)
+    litellm_params:
+      model: os.environ/KIMI_MODEL
+      api_base: os.environ/KIMI_API_BASE
+      api_key: os.environ/KIMI_API_KEY
+  - model_name: malar-nemotron          # NVIDIA Nemotron (NIM / build.nvidia.com)
+    litellm_params:
+      model: os.environ/NEMOTRON_MODEL
+      api_base: os.environ/NEMOTRON_API_BASE
+      api_key: os.environ/NEMOTRON_API_KEY
+  - model_name: malar-cosmos            # NVIDIA Cosmos (NIM / build.nvidia.com)
+    litellm_params:
+      model: os.environ/COSMOS_MODEL
+      api_base: os.environ/COSMOS_API_BASE
+      api_key: os.environ/COSMOS_API_KEY
+
+  # Generic escape hatch — point at ANY OpenAI-compatible endpoint from .env.
+  - model_name: malar-custom
+    litellm_params:
+      model: os.environ/CUSTOM_MODEL
+      api_base: os.environ/CUSTOM_API_BASE
+      api_key: os.environ/CUSTOM_API_KEY
+
+  # Generic "frontier" alias (defaults to Claude unless you repoint FRONTIER_* in .env).
+  - model_name: malar-frontier
+    litellm_params:
+      model: os.environ/FRONTIER_MODEL
+      api_key: os.environ/FRONTIER_API_KEY
+
+litellm_settings:
+  drop_params: true
+  telemetry: false        # no phone-home / usage stats leave the box
+  # No automatic fallback: each alias surfaces its OWN error (a local-model failure must
+  # not silently fall back to a keyless cloud provider and return a confusing 401).
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

@@ -1,0 +1,57 @@
+domain: raman_virus
+description: The domain is aimed at train raman spectroscopy data for respiratory
+  virus and carry out all possible abstraction and pattern recognition, like topological,
+  hyperspectral, network graphs to analyse and classify with identified object in
+  given object fields, with learned values, and functional values through analysis.
+  When new data comes it will compare all the parameters and identify the virus, or
+  mixture of virus or entirely new virus or some variant of existing virus, prediction
+  statistics and prediction validity.
+adapters:
+- type: synthetic
+  params: {}
+encoders:
+  topology:
+    n_pixels: 12
+  spectral:
+    latent_dim: 16
+  graph:
+    emb_dim: 48
+objectives:
+- key: classification_accuracy
+  target: 0.95
+- key: novelty_detection_sensitivity
+  target: 0.85
+functionals:
+- dim: topological_feature_extraction
+  actions:
+  - calculate_persistence_diagrams_per_virus
+  - extract_persistent_homology_features
+- dim: spectral_encoding
+  actions:
+  - normalize_raman_spectra
+  - apply_wavelet_transform_or_pca
+- dim: graph_construction_and_embedding
+  actions:
+  - build_similarity_graph_from_spectra
+  - calculate_node_embeddings_using_gcn
+classes: []
+coverage_targets:
+  novelty_rate_below: 0.1
+  per_class_confidence_above: 0.7
+  ood_rate_below: 0.15
+  value_uncertainty_below: 0.2
+data_folders:
+- C:/Users/HP/OneDrive/MALAR_V2/Raman_Virus
+data_description: The training data contains the various viruses identified as sub
+  folder names; each virus contains 10 confirmed sample raman data. First two columns
+  are to be ignored, and third column is the raman shift in cm-1 and fourth column
+  is raman intensity in arbitrary units. Training is to be carried out in each file
+  and learned values to be stored and updates for future references. These virus data
+  to be analyzed and learned from the graph structural, topological, and spectra information
+  and training to be carried out. Upon training on various data sources and viruses,
+  finally the trained inform will be used to identify the new virus or unknown patients
+  raman spectra data for possible identification virus or mixture of virus or any
+  new variant identified, etc.
+budget:
+  max_ticks: 24
+  hitl_labels: 30

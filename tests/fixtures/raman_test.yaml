@@ -1,0 +1,24 @@
+# Fixed test fixture — NOT user-editable (campaign coverage test depends on it).
+domain: raman_test
+description: synthetic raman fixture for tests
+adapters:
+  - type: raman
+    params: { n_ticks: 24, n_per_class: 12, n_bands: 128, k: 6 }
+encoders:
+  topology: { n_pixels: 12 }
+  spectral: { latent_dim: 16 }
+  graph: { emb_dim: 48 }
+objectives:
+  - { key: sensitivity, target: 0.9 }
+  - { key: specificity, target: 0.9 }
+functionals:
+  - { dim: response, actions: [confirm_rtpcr, escalate, watchlist] }
+classes: [sars_cov_2, influenza_a, rsv, negative]
+coverage_targets:
+  novelty_rate_below: 0.1
+  per_class_confidence_above: 0.7
+  ood_rate_below: 0.15
+  value_uncertainty_below: 0.2
+budget:
+  max_ticks: 24
+  hitl_labels: 30

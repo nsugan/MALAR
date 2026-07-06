@@ -1,0 +1,41 @@
+# DomainSpec — manufacturing defect / process control
+domain: manufacturing
+description: >
+  Detect surface/process defects from sensor streams and choose a corrective action.
+
+adapters:
+  - type: sensor
+    params: { n_sensors: 24, n_ticks: 12, k: 4 }
+
+encoders:
+  topology: { n_pixels: 12, max_dim: 2 }
+  spectral: { latent_dim: 12 }
+  graph:    { emb_dim: 48 }
+
+objectives:
+  - key: yield
+    direction: maximize
+    target: 0.9
+  - key: defect_rate
+    direction: minimize
+    target: 0.05
+  - key: cycle_time
+    direction: minimize
+    target: 0.8
+
+functionals:
+  - dim: response
+    actions: [adjust_feed_rate, re_tool, hold_lot, flag]
+
+classes: [nominal, surface_defect, dimensional_drift, contamination]
+
+coverage_targets:
+  novelty_rate_below: 0.1
+  per_class_confidence_above: 0.75
+  ood_rate_below: 0.2
+  value_uncertainty_below: 0.25
+
+budget:
+  max_ticks: 12
+  hitl_labels: 30
+  compute_seconds: 600

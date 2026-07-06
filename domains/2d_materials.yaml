@@ -1,0 +1,33 @@
+domain: 2d_materials
+description: I am planing to model a new kind of 2D materails that is learned from
+  the all existing 2D materails database and its properties. Based on these learning
+  i wanted to make new 2D materails with tailored property.
+adapters:
+- type: synthetic
+  params: {}
+encoders:
+  topology:
+    n_pixels: 12
+  spectral:
+    latent_dim: 16
+  graph:
+    emb_dim: 48
+objectives:
+- key: quality
+  target: 0.8
+functionals:
+- dim: response
+  actions:
+  - flag
+  - watchlist
+classes: []
+coverage_targets:
+  novelty_rate_below: 0.1
+  per_class_confidence_above: 0.7
+  ood_rate_below: 0.15
+  value_uncertainty_below: 0.2
+data_folders: []
+data_description: ''
+budget:
+  max_ticks: 24
+  hitl_labels: 30

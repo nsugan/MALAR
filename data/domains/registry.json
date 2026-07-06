@@ -1,0 +1,119 @@
+{
+  "active_id": "raman_virus",
+  "domains": [
+    {
+      "id": "raman_virus",
+      "name": "Raman_Virus",
+      "description": "The domain is aimed at train raman spectroscopy data for respiratory virus and carry out all possible abstraction and pattern recognition, like topological, hyperspectral, network graphs to analyse and classify with identified object in given object fields, with learned values, and functional values through analysis. When new data comes it will compare all the parameters and identify the virus, or mixture of virus or entirely new virus or some variant of existing virus, prediction statistics and prediction validity.",
+      "adapter_type": "synthetic",
+      "data_folders": [
+        "C:/Users/HP/OneDrive/MALAR_V2/Raman_Virus"
+      ],
+      "data_description": "The training data contains the various viruses identified as sub folder names; each virus contains 10 confirmed sample raman data. First two columns are to be ignored, and third column is the raman shift in cm-1 and fourth column is raman intensity in arbitrary units. Training is to be carried out in each file and learned values to be stored and updates for future references. These virus data to be analyzed and learned from the graph structural, topological, and spectra information and training to be carried out. Upon training on various data sources and viruses, finally the trained inform will be used to identify the new virus or unknown patients raman spectra data for possible identification virus or mixture of virus or any new variant identified, etc.",
+      "objectives": [
+        {
+          "key": "classification_accuracy",
+          "target": 0.95
+        },
+        {
+          "key": "novelty_detection_sensitivity",
+          "target": 0.85
+        }
+      ],
+      "functionals": [
+        {
+          "dim": "topological_feature_extraction",
+          "actions": [
+            "calculate_persistence_diagrams_per_virus",
+            "extract_persistent_homology_features"
+          ]
+        },
+        {
+          "dim": "spectral_encoding",
+          "actions": [
+            "normalize_raman_spectra",
+            "apply_wavelet_transform_or_pca"
+          ]
+        },
+        {
+          "dim": "graph_construction_and_embedding",
+          "actions": [
+            "build_similarity_graph_from_spectra",
+            "calculate_node_embeddings_using_gcn"
+          ]
+        }
+      ],
+      "classes": [],
+      "coverage_targets": {
+        "novelty_rate_below": 0.1,
+        "per_class_confidence_above": 0.7,
+        "ood_rate_below": 0.15,
+        "value_uncertainty_below": 0.2
+      },
+      "plan": {
+        "objectives": [
+          {
+            "key": "classification_accuracy",
+            "description": "Achieve high accuracy in classifying known viruses and identifying unknown samples.",
+            "direction": "maximize",
+            "target": 0.95
+          },
+          {
+            "key": "novelty_detection_sensitivity",
+            "description": "Maximize the ability to detect novel or unclassified virus variants/mixtures.",
+            "direction": "maximize",
+            "target": 0.85
+          }
+        ],
+        "functionals": [
+          {
+            "dim": "topological_feature_extraction",
+            "actions": [
+              "calculate_persistence_diagrams_per_virus",
+              "extract_persistent_homology_features"
+            ]
+          },
+          {
+            "dim": "spectral_encoding",
+            "actions": [
+              "normalize_raman_spectra",
+              "apply_wavelet_transform_or_pca"
+            ]
+          },
+          {
+            "dim": "graph_construction_and_embedding",
+            "actions": [
+              "build_similarity_graph_from_spectra",
+              "calculate_node_embeddings_using_gcn"
+            ]
+          }
+        ],
+        "processing_steps": [
+          "Data Preprocessing: Select Raman Shift (Column 3) and Intensity (Column 4); discard first two columns.",
+          "Feature Extraction per Virus Folder: For each virus folder, process the 10 samples to generate spectral data, topological features, and graph representations.",
+          "Model Training Phase 1 (Encoding): Train separate encoders (Topological, Spectral, Graph) on the known virus datasets to learn robust feature embeddings for each class.",
+          "Model Integration & Fine-Tuning: Concatenate/Fuse the learned embeddings into a unified representation. Train a final classifier layer using these fused features.",
+          "Inference/Testing: Use the trained model to process unknown samples or mixtures, comparing their derived embeddings against the established virus manifold for identification."
+        ],
+        "extra_agents": [
+          {
+            "name": "Database Manager",
+            "role": "Systematically store and version control the learned feature vectors (topological summaries, spectral centroids, graph metrics) for every analyzed virus dataset to facilitate incremental learning and comparison against future unknown samples."
+          }
+        ],
+        "rationale": "The plan systematically addresses the multimodal nature of the data by employing dedicated encoders for topological, spectral, and graph information. The objective is to fuse these distinct representations into a unified model capable of both classification (known viruses) and anomaly/novelty detection (unknown samples).",
+        "source": "llm",
+        "used_llm": true
+      },
+      "extra_agents": [
+        {
+          "name": "Database Manager",
+          "role": "Systematically store and version control the learned feature vectors (topological summaries, spectral centroids, graph metrics) for every analyzed virus dataset to facilitate incremental learning and comparison against future unknown samples."
+        }
+      ],
+      "llm_assist": true,
+      "created": 1782228123.1190753,
+      "last_activity": 1782801583.3992739
+    }
+  ]
+}

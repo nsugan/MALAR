@@ -1,0 +1,55 @@
+services:
+  neo4j:
+    image: neo4j:5-community
+    environment:
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
+      - NEO4J_PLUGINS=["apoc","graph-data-science"]
+    ports: ["7474:7474", "7687:7687"]
+    volumes: ["neo4j_data:/data"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7474"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports: ["6333:6333", "6334:6334"]
+    volumes: ["qdrant_data:/qdrant/storage"]
+
+  ollama:
+    image: ollama/ollama:0.30.8          # pin
+    ports: ["11434:11434"]
+    volumes: ["ollama_models:/root/.ollama"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable      # maintained stable tag (v1.80.0 was not published)
+    depends_on: [ollama]
+    env_file: [.env]
+    ports: ["4000:4000"]
+    volumes: ["./infra/litellm_config.yaml:/app/config.yaml:ro"]
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+
+  malar:                                  # FastAPI: engine + control plane
+    build: .
+    depends_on: [neo4j, qdrant, litellm]
+    env_file: [.env]
+    ports: ["8000:8000"]
+    volumes: ["./:/app"]
+
+  webapp:
+    build: ./ui
+    depends_on: [malar]
+    ports: ["3000:80"]
+
+volumes:
+  neo4j_data: {}
+  qdrant_data: {}
+  ollama_models: {}
