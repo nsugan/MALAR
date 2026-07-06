@@ -40,7 +40,7 @@ local `.env` and in the zip backup.
 
 ## Optional: push to a private remote
 ```powershell
-git remote add origin <your-private-repo-url>
+git remote add origin <https://github.com/nsugan/MALAR>
 git push -u origin v3
 git push origin v2          # push the tag too
 ```
