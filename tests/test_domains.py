@@ -24,6 +24,25 @@ def test_domain_isolation(tmp_path, monkeypatch):
     config._SETTINGS = None
 
 
+def test_generic_synthetic_domain_trains(tmp_path, monkeypatch):
+    """A default (synthetic) domain builds a generic feature-cloud queue and trains
+    end-to-end with no domain-specific (raman) coupling. (V4 genericization)"""
+    from malar.core import config
+    monkeypatch.setenv("MALAR_DATA_DIR", str(tmp_path))
+    config._SETTINGS = None
+    from malar.api.domain_service import DomainService
+    dm = DomainManager()
+    d = dm.create("Generic")                      # no adapter_type -> synthetic default
+    assert d.adapter_type == "synthetic"
+    svc = DomainService(manager=dm)
+    q = svc.build_queue(d.id, n_per_class=1, replicates=8)
+    assert q and all(it["kind"] == "features" for it in q)
+    assert {it["label"] for it in q} == {"class_a", "class_b", "class_c"}
+    r = svc.confirm(d.id, "confirm")              # commit the first item
+    assert r.get("committed") and dm.engine(d.id).memory_size() >= 1
+    config._SETTINGS = None
+
+
 def test_folder_analyzer_empty():
     rep = analyze_folder("")
     assert rep.n_files == 0 and "no folder" in rep.summary

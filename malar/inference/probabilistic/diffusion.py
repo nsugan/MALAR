@@ -17,8 +17,7 @@ from __future__ import annotations
 import numpy as np
 
 from malar.fields.values import diffuse_values
-from malar.world.adapters.raman import cosine_knn_graph
-from malar.world.graph import WorldGraph, knn_graph_from_points
+from malar.world.graph import WorldGraph, cosine_knn_graph, knn_graph_from_points
 
 
 class DiffusionAgent:

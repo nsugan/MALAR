@@ -1,10 +1,13 @@
 """FolderAnalyzer (UI plan §5.1-5.2).
 
-Walks a training/test folder, classifies files (spectra .csv/.txt/.spc, hyperspectral
-cubes .hdr/.dat/.npy, images, manifests/label files), records counts/structure,
-extracts existing label info (manifests, label columns, sidecars), and produces a
-folder report. Then proposes a representative SIMILAR SUBSET for first training via
-quick-feature clustering, with the rationale.
+Walks a training/test folder and classifies files DOMAIN-AGNOSTICALLY: numeric feature
+tables (.csv/.txt/.tsv/.asc/.spc), numeric arrays (.npy/.npz/.hdr/.dat), images, video,
+and manifests/label files. Records counts/structure, extracts existing label info
+(manifests, label columns, sidecars), and produces a folder report. Then proposes a
+representative SIMILAR SUBSET for first training via quick-feature clustering.
+
+What the data actually represents is described in the Configure tab (free text) — the
+analyzer makes no assumptions about the instrument or subject matter.
 
 Folder contents are treated as untrusted DATA — manifests are parsed, never executed.
 """
@@ -15,17 +18,19 @@ from pathlib import Path
 
 import numpy as np
 
-SPECTRA_EXT = {".csv", ".txt", ".spc", ".asc"}
-CUBE_EXT = {".hdr", ".dat", ".npy", ".npz"}
+NUMERIC_EXT = {".csv", ".txt", ".tsv", ".asc", ".spc"}   # numeric feature tables / signals
+ARRAY_EXT = {".npy", ".npz", ".hdr", ".dat"}             # numeric arrays
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
+VIDEO_EXT = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 MANIFEST_NAMES = {"manifest.json", "labels.csv", "readme", "readme.md", "metadata.json"}
+TRAINABLE_KINDS = ("features", "array", "image", "video")
 
 
 @dataclass
 class FileEntry:
     path: str
     name: str
-    kind: str            # spectra | cube | image | manifest | other
+    kind: str            # features | array | image | video | manifest | other
     size: int
     label: str | None = None
 
@@ -53,12 +58,14 @@ def _classify(p: Path) -> str:
     if n in MANIFEST_NAMES or n.startswith("readme"):
         return "manifest"
     ext = p.suffix.lower()
-    if ext in SPECTRA_EXT:
-        return "spectra"
-    if ext in CUBE_EXT:
-        return "cube"
+    if ext in NUMERIC_EXT:
+        return "features"
+    if ext in ARRAY_EXT:
+        return "array"
     if ext in IMAGE_EXT:
         return "image"
+    if ext in VIDEO_EXT:
+        return "video"
     return "other"
 
 
@@ -117,8 +124,8 @@ def analyze_folder(path: str, max_files: int = 5000) -> FolderReport:
 
 def _quick_features(item: FileEntry) -> np.ndarray:
     """Cheap, dependency-free signature for clustering (size + name hash + kind)."""
-    kinds = ["spectra", "cube", "image", "manifest", "other"]
-    k = kinds.index(item.kind) if item.kind in kinds else 4
+    kinds = ["features", "array", "image", "video", "manifest", "other"]
+    k = kinds.index(item.kind) if item.kind in kinds else len(kinds) - 1
     name_sig = sum(ord(c) for c in item.name) % 997
     return np.array([k, np.log1p(item.size), name_sig / 997.0,
                      (hash(item.label or "") % 1000) / 1000.0], dtype=float)
@@ -127,7 +134,7 @@ def _quick_features(item: FileEntry) -> np.ndarray:
 def select_subset(report: FolderReport, k_clusters: int = 4,
                   per_cluster: int = 2) -> dict:
     """Cluster files, propose a representative similar subset + rationale."""
-    data_items = [it for it in report.items if it.kind in ("spectra", "cube", "image")]
+    data_items = [it for it in report.items if it.kind in TRAINABLE_KINDS]
     if not data_items:
         return {"subset": [], "clusters": [], "rationale": "no trainable data files found"}
     X = np.stack([_quick_features(it) for it in data_items])

@@ -67,6 +67,7 @@ class WorldViewBuilder:
                   f"Active(ids): {active[:10]}\nNovel(ids): {novel[:10]}\n"
                   f"Open questions: {questions[:10]}\nFacts: {base}")
         try:
-            return self.llm.complete("malar-reasoner", prompt).strip() or base
+            # reasoner ROLE via the route table, not a hardcoded alias. (V4 fix)
+            return self.llm.reason(prompt, source="worldview").strip() or base
         except Exception:
             return base

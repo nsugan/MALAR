@@ -23,9 +23,14 @@ class Settings:
     # LLM gateway (aliases only — provider chosen in infra/litellm_config.yaml)
     llm_base_url: str = field(default_factory=lambda: _env("LLM_BASE_URL", "http://localhost:4000/v1"))
     llm_api_key: str = field(default_factory=lambda: _env("LLM_API_KEY", "sk-malar-local"))
-    alias_reasoner: str = field(default_factory=lambda: _env("LLM_REASONER_ALIAS", "malar-reasoner"))
-    alias_fast: str = field(default_factory=lambda: _env("LLM_FAST_ALIAS", "malar-fast"))
+    # Default reasoner/fast route to DeepSeek (opt-in cloud; needs DEEPSEEK_API_KEY in .env
+    # and sends data off-box). Override per role via LLM_*_ALIAS or the LLM tab's routing.
+    alias_reasoner: str = field(default_factory=lambda: _env("LLM_REASONER_ALIAS", "malar-deepseek"))
+    alias_fast: str = field(default_factory=lambda: _env("LLM_FAST_ALIAS", "malar-deepseek"))
     alias_vision: str = field(default_factory=lambda: _env("LLM_VISION_ALIAS", "malar-vision"))
+    # agent-factory roles — env-configurable like the rest; route to ANY alias in the LLM tab.
+    alias_coder: str = field(default_factory=lambda: _env("LLM_CODER_ALIAS", "malar-claude"))
+    alias_algo: str = field(default_factory=lambda: _env("LLM_ALGO_ALIAS", "malar-deepseek"))
     llm_timeout: float = field(default_factory=lambda: float(_env("LLM_TIMEOUT", "120")))
 
     # Runtime
@@ -50,7 +55,6 @@ class Settings:
     # Conformal / OOD
     conformal_alpha: float = 0.1
     ood_threshold: float = 0.6
-
     def artifacts_dir(self) -> Path:
         p = self.data_dir / "artifacts"
         p.mkdir(parents=True, exist_ok=True)

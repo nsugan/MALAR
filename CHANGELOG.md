@@ -1,9 +1,89 @@
 # MALAR — Changelog
 
-Versioning note: "V2" and "V3" refer to the project iteration (the folder line).
-The `v2` git tag and `MALAR_V2_backup_*.zip` freeze the V2 state; the working tree is V3.
+Versioning note: "V2"/"V3"/"V4" refer to the project iteration (the folder line).
+The `v2` git tag and `MALAR_V2_backup_*.zip` freeze the V2 state; V4 lives in `C:\Dev\MALAR_V4`
+(a clean copy of the final V3 tree, no `.git`/`node_modules`/caches).
 
-## [Unreleased] — V3 (3.0.0.dev) — in progress
+## [Unreleased] — V4 (4.0.0.dev) — in progress
+
+Iteration bumped to V4 (folder `MALAR_V4`). First V4 work: a data-flow audit and fixes —
+see `docs/V4_DATAFLOW_FINDINGS.md` for the full findings, evidence, and deferred items.
+
+### Changed — Agent Factory
+- **Generated agents can now use any library / do any task.** Removed the `math`/`numpy`-only
+  import allowlist and the call/dunder blocklist from `validate.py`, and switched
+  `sandbox.py` to run generated agents with full builtins and real imports. Validation now
+  only checks that the code parses and implements `GeneratedAgent.run(ctx)`, and additionally
+  reports the imports the code uses (for review). The algorithm/code prompts were updated to
+  tell the model it may import and use anything it needs. **Security note:** validated agents
+  run with full capabilities (file/network/etc.) and auto-run in the training loop when "use
+  in training" is on — only validate agents you have reviewed.
+- **Per-agent input/output is now visible for verification.** Every agent run (auto-test on
+  generation, manual "Test on domain sample", "Run now", and in-loop training runs) records
+  its last input (ctx) and output on the agent; the Agent Factory shows a "Last run — input &
+  output" panel when you click an agent, so you can confirm it does its task. Backed by new
+  `last_input`/`last_output`/`last_run` columns in the agent store (`agent_memory.py`,
+  migrated in place) and `AgentFactory.record_io`.
+- Tests: `test_validate_allows_any_imports`, `test_sandbox_runs_with_full_capabilities`,
+  `test_records_last_input_and_output` (existing restriction tests updated to the new behavior).
+
+### Fixed — Web UI (build-verified)
+- **Blank screen after visiting the LLM or Debug tab (needed a reload).** Root cause: an
+  uncaught render error unmounted the whole React tree (no error boundary). Added a per-tab
+  `ErrorBoundary` (`ui/src/components/ErrorBoundary.jsx`), keyed by tab in `App.jsx`, so a
+  view error is shown inline and the header/nav stay live — switching tabs recovers with no
+  reload. Also hardened `DebugConsole` (optional chaining on partial `/debug` snapshots so it
+  never throws) and fixed a `ProviderRouting` effect that returned a Promise as its cleanup.
+- **DeepSeek is now the default provider for the `reasoner` and `fast` roles** (`config.py`
+  `alias_reasoner`/`alias_fast` default to `malar-deepseek`; shown as the default in the LLM
+  tab's Model-routing card). Requires `DEEPSEEK_API_KEY` in `.env` and sends data off-box;
+  override per role via `LLM_*_ALIAS` env or the LLM tab. `vision` stays local.
+
+### Changed — domain-agnostic / generic data model
+The engine is now generic by default; nothing is hardcoded to Raman spectra, virus classes,
+or sensor timeseries. What the data actually is gets described in the **Domain description**
+and the **Configure** tab (free text → LLM context), not baked into code. Configure, Train,
+Agents, and their actions are otherwise unchanged. (verified: full suite green; UI builds)
+- **Synthetic is the default.** New domains use the domain-agnostic `SyntheticAdapter`; the
+  built-in no-folder demo uses generic, class-separable feature clouds
+  (`synthetic_class_cloud`) with generic labels (`class_a/b/c`) instead of virus spectra.
+- **Format-agnostic folder ingestion.** `_load_points` loads any numeric table/array
+  (`.csv/.txt/.tsv/.asc/.spc/.npy/.npz/.dat`) and, best-effort, images/video (optional
+  `PIL`/`imageio`), reducing each to a fixed-length feature vector. `folder_analyzer` kinds
+  are now generic (`features/array/image/video`).
+- **Decoupled, not deleted.** `raman.py` / `sensor.py` remain on disk and still work for any
+  pre-existing domain that declares them (lazy-imported); `domain_service`, `frontend`, and
+  `diffusion` no longer import from `raman.py` — the generic `cosine_knn_graph` moved to
+  `world/graph.py`. Defaults in `manager.py`, `planner.py`, `session.py`, `domains.py`, and
+  the create form are now `synthetic`.
+- **UI wording genericized.** Removed Raman/spectra/hyperspectral/timeseries/virus wording
+  from the Domains create form (adapter dropdown dropped), Configure, Train, Input Inspector,
+  Inference & Prediction, and the legacy console; the core `topology/spectral/graph` encoder
+  names are kept (they are not domain-specific).
+- Test: `tests/test_domains.py::test_generic_synthetic_domain_trains`.
+
+### Fixed — data-flow inconsistencies (backend, pytest-verified)
+- **❶ OOD validity gate consistency.** Both inference entry points now gate on `fe.g` (the
+  same space as the registered `o.g` contexts); the probabilistic manager previously compared
+  `fe.world_emb` against `o.g` across embedding spaces. `validation/ood.py` param renamed
+  `world_emb`→`ctx_emb` with the same-space contract documented.
+- **❷ Value/affordance graph sync.** `HAS_VALUE` / `AFFORDS` edges (with `:Object` /
+  `:Objective` / `:Action` nodes) are now actually written by both graph backends and mirrored
+  from the training write path; surfaced in the World-Graph endpoint. In-process stores remain
+  the source of truth (checkpointed to `state.json`); false "synced to Neo4j" docstrings fixed.
+- **❸ Qdrant read-back hydration.** Added `QdrantMemory.fetch()` and `MemoryStore._hydrate()`;
+  `get_item`/`reinforce`/`merge` rehydrate real vectors from Qdrant on a cache miss instead of
+  no-op'ing (merges) or losing vectors (reinforce) after a restart.
+- **Routing bypass.** `frontend.py` / `worldview.py` / `health.py` now call the reasoner/fast
+  ROLE via the route table instead of hardcoded alias literals.
+- Tests: two new cases in `tests/test_memory.py` (cold-cache hydration; value/affordance edges).
+
+### Deferred (documented in `docs/V4_DATAFLOW_FINDINGS.md`)
+- ❹ unify the dual auto-train pipeline; ❺/❻ vestigial legacy `/ws`+`/review` control plane
+  (superseded by the per-domain supervised train flow); S auto-requeue of sticky-value
+  rejections to the HITL queue.
+
+## [Unreleased] — V3 (3.0.0.dev)
 See `ROADMAP_V3.md` for the planned direction and `MALAR_INFERENCE_LAYER_PLAN.md` for the
 inference layer design.
 

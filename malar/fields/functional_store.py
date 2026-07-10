@@ -1,7 +1,11 @@
 """Functional/affordance store: (:Object)-[:AFFORDS {dim, action, source, version, world_ctx}]->(:Action).
 
-In-process source of truth synced to Neo4j by the memory layer. Records which actions
-an object class affords along each functional dimension j, with provenance.
+In-process SOURCE OF TRUTH. Records which actions an object class affords along each
+functional dimension j, with provenance. Durability: checkpointed to
+`data/domains/{id}/state.json` (survives restart), and mirrored into the memory graph as
+(:Object)-[:AFFORDS]->(:Action) edges by the training write path
+(`DomainService.confirm`, via `MemoryGraph.upsert_affordance`) for visualisation. The
+graph copy is a projection — this dict remains authoritative. (V4 fix ❷)
 """
 from __future__ import annotations
 

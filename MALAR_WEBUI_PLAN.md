@@ -1,5 +1,15 @@
 # MALAR — Web UI Master Plan (augmentation)
 
+> **Status: original plan (U0–U8), superseded by the as-built record.** The six tabs
+> planned here all shipped, plus three more added later: **Agents**, **LLM**, **Debug**
+> (see `MALAR_MASTER_PLAN_v2.md` §9), and then **Inference and Prediction** and **Agent
+> Factory** (11 tabs total as of the 2026-07-06 audit — see `MALAR_MASTER_PLAN_v2.md`
+> §19.4/§20). One material gap found in that audit: the backend's `/ws` + `/control` +
+> `/review` interrupt-before wiring described in §5.4/§7 below is real, but **the shipped
+> React frontend never calls it** — the Review-mode toggle is currently inert local
+> state and every tab polls REST endpoints instead. Read this file for the original
+> design intent; read `MALAR_MASTER_PLAN_v2.md` §19.4 for what's actually running.
+
 **A companion plan to `MALAR_MASTER_PLAN.md`. It specifies the web application — multi-domain management, configuration, supervised one-at-a-time training, world-graph visualization, learned-knowledge review, unsupervised auto-training, and folder-level test/inference with results + comparison.**
 
 This plan is written to be **grafted onto the existing working codebase** by Claude Code. It reuses the locked stack (FastAPI + LangGraph + Neo4j + Qdrant + Ollama `gemma4:e4b` via LiteLLM + React/Vite). It **adds** a per-domain isolation layer, new backend endpoints, and new UI views — it does not change the engine, memory, field, training, or inference semantics already defined.

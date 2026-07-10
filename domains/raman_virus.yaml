@@ -22,18 +22,18 @@ objectives:
 - key: novelty_detection_sensitivity
   target: 0.85
 functionals:
-- dim: topological_feature_extraction
+- dim: topological_fingerprint
   actions:
-  - calculate_persistence_diagrams_per_virus
-  - extract_persistent_homology_features
-- dim: spectral_encoding
+  - compute_persistence_diagrams
+  - extract_persistent_features
+- dim: spectral_embedding
   actions:
-  - normalize_raman_spectra
-  - apply_wavelet_transform_or_pca
-- dim: graph_construction_and_embedding
+  - apply_dimensionality_reduction
+  - calculate_spectral_descriptors
+- dim: graph_structure_encoding
   actions:
-  - build_similarity_graph_from_spectra
-  - calculate_node_embeddings_using_gcn
+  - build_similarity_graph
+  - compute_graph_metrics
 classes: []
 coverage_targets:
   novelty_rate_below: 0.1
@@ -41,13 +41,13 @@ coverage_targets:
   ood_rate_below: 0.15
   value_uncertainty_below: 0.2
 data_folders:
-- C:/Users/HP/OneDrive/MALAR_V2/Raman_Virus
+- C:/Dev/MALAR/Raman_Virus
 data_description: The training data contains the various viruses identified as sub
   folder names; each virus contains 10 confirmed sample raman data. First two columns
   are to be ignored, and third column is the raman shift in cm-1 and fourth column
   is raman intensity in arbitrary units. Training is to be carried out in each file
   and learned values to be stored and updates for future references. These virus data
-  to be analyzed and learned from the graph structural, topological, and spectra information
+  to be analysed and learned from the graph structural, topological, and spectra information
   and training to be carried out. Upon training on various data sources and viruses,
   finally the trained inform will be used to identify the new virus or unknown patients
   raman spectra data for possible identification virus or mixture of virus or any

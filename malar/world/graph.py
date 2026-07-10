@@ -90,6 +90,36 @@ class WorldGraph:
         self.features = new_features
 
 
+def cosine_knn_graph(features: np.ndarray, k: int = 6) -> np.ndarray:
+    """Symmetric weighted kNN adjacency by cosine similarity on row feature vectors.
+
+    Domain-agnostic: works for any (n, d) feature matrix (a signal/vector per node),
+    not just spectra. Use this when nodes carry high-dimensional feature vectors; use
+    knn_graph_from_points for low-dimensional spatial point clouds.
+    """
+    X = np.asarray(features, dtype=float)
+    n = X.shape[0]
+    if n == 0:
+        return np.zeros((0, 0))
+    norms = np.linalg.norm(X, axis=1, keepdims=True)
+    Xn = X / np.where(norms > 0, norms, 1.0)
+    sim = Xn @ Xn.T
+    A = np.zeros((n, n))
+    k = min(k, n - 1) if n > 1 else 0
+    for i in range(n):
+        order = np.argsort(-sim[i])
+        cnt = 0
+        for j in order:
+            if j == i:
+                continue
+            A[i, j] = max(A[i, j], float(max(sim[i, j], 0.0)))
+            A[j, i] = A[i, j]
+            cnt += 1
+            if cnt >= k:
+                break
+    return A
+
+
 def knn_graph_from_points(points: np.ndarray, k: int = 5, sigma: float | None = None) -> np.ndarray:
     """Build a symmetric weighted kNN adjacency from a point cloud (Gaussian weights)."""
     points = np.asarray(points, dtype=float)

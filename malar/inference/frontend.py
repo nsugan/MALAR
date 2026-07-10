@@ -3,9 +3,10 @@
 This runs BEFORE identification. Each modality is reduced to the same three encoder
 outputs the trained model uses, plus a world_emb for validity-gating.
 
-  * Image  — a domain extractor first (Raman map -> spectra array). Otherwise Gemma 4
-             vision (via the gateway) proposes regions/descriptions, encoded at lower
-             confidence. Then topology/spectral/graph encoders -> phi/h/graph_emb.
+  * Image  — a (n_samples, n_features) numeric matrix is treated as feature vectors and
+             turned into a similarity graph directly. Otherwise Gemma 4 vision (via the
+             gateway) proposes regions/descriptions, encoded at lower confidence. Then
+             topology/spectral/graph encoders -> phi/h/graph_emb.
   * Video  — sample/segment frames -> per-frame features -> temporal aggregation -> encoders.
   * Text   — Gemma 4 parses the problem into a structured query + pseudo-features; if the
              gateway is unavailable, a deterministic keyword parser maps to known classes.
@@ -18,8 +19,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from malar.world.adapters.raman import cosine_knn_graph
-from malar.world.graph import WorldGraph, knn_graph_from_points
+from malar.world.graph import WorldGraph, cosine_knn_graph, knn_graph_from_points
 
 
 @dataclass
@@ -63,12 +63,12 @@ class MultimodalFrontEnd:
 
     def _image(self, image) -> FrontEndResult:
         arr = np.asarray(image, dtype=float)
-        # Raman map / spectra array: (n_samples, n_bands) -> cosine-knn graph.
+        # Feature matrix: (n_samples, n_features) with high-dim rows -> cosine-knn graph.
         if arr.ndim == 2 and arr.shape[1] >= 8:
             A = cosine_knn_graph(arr, k=min(6, max(1, arr.shape[0] - 1)))
             world = WorldGraph(node_ids=[f"px{i}" for i in range(arr.shape[0])],
                                features=arr, adjacency=A)
-            return self._encode_world(world, "image:spectra", 1.0)
+            return self._encode_world(world, "image:features", 1.0)
         # Generic 2D point set (defect ROI) -> knn graph.
         pts = arr if arr.ndim == 2 else arr.reshape(-1, 1)
         A = knn_graph_from_points(pts, k=min(6, max(1, pts.shape[0] - 1)))
@@ -115,10 +115,13 @@ class MultimodalFrontEnd:
         if self.llm is not None:
             try:
                 classes = self.engine.c.registry.classes()
-                out = self.llm.complete(
-                    "malar-reasoner",
+                # Route through the reasoner ROLE (LLM-tab route -> env default), not a
+                # hardcoded alias literal, per the "provider chosen in config, never in
+                # code" rule. (V4 fix: routing bypass)
+                out = self.llm.reason(
                     f"Map the problem to ONE known class or UNKNOWN.\nClasses: {classes}\n"
-                    f"Problem: {text}\nReply: CLASS: <class or UNKNOWN>")
+                    f"Problem: {text}\nReply: CLASS: <class or UNKNOWN>",
+                    source="frontend")
                 for line in out.splitlines():
                     if "CLASS:" in line:
                         c = line.split("CLASS:", 1)[1].strip()

@@ -2,8 +2,8 @@
 
 Holds one InferenceManager per domain (fit over that domain's whole trained corpus) and
 exposes predict / agents / crossref / feedback / escalate. Reuses DomainService for the
-trained engine, the spectra loader and per-class reference spectra, so everything stays
-domain-isolated.
+trained engine, the generic data loader and per-class reference feature vectors, so
+everything stays domain-isolated.
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ class PredictService:
         return self._svc.llm
 
     def _class_means(self, did: str) -> dict:
-        """Per-class mean reference spectrum from the training queue (whole-corpus signal)."""
+        """Per-class mean reference feature vector from the training queue (whole corpus)."""
         items = self._svc._queues.get(did) or []
         means: dict[str, list] = {}
         groups: dict[str, list] = {}
@@ -132,7 +132,7 @@ class PredictService:
             return {"available": False, "reason": str(e)}
         image = self._load_image(payload)
         if image is None:
-            return {"available": False, "reason": "escalation needs a server-visible spectra file"}
+            return {"available": False, "reason": "escalation needs a server-visible data file"}
         return _json_safe(mgr.escalate_diffusion(image))
 
 

@@ -10,7 +10,7 @@ from malar.domains.manager import get_manager
 class CreateDomain(BaseModel):
     name: str
     description: str = ""
-    adapter_type: str = "raman"
+    adapter_type: str = "synthetic"
 
 
 class DomainConfig(BaseModel):
@@ -45,16 +45,20 @@ def select_domain(did: str):
     return {"active": get_manager().select(did).id}
 
 
+@router.post("/wipe-memory")
+def wipe_memory():
+    """Full fresh start: drop every domain's Qdrant collection and clear all of Neo4j."""
+    return get_manager().wipe_all_memory()
+
+
 @router.post("/{did}/reset")
-def reset_domain(did: str):
-    get_manager().reset(did)
-    return {"reset": did}
+def reset_domain(did: str, purge_memory: bool = True):
+    return get_manager().reset(did, purge_memory=purge_memory)
 
 
 @router.delete("/{did}")
-def delete_domain(did: str):
-    get_manager().delete(did)
-    return {"deleted": did}
+def delete_domain(did: str, purge_memory: bool = True):
+    return get_manager().delete(did, purge_memory=purge_memory)
 
 
 @router.get("/{did}/config")

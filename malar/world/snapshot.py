@@ -33,10 +33,21 @@ class SnapshotStore:
         self._index_path = self.root / "snapshots_index.json"
         self.index: dict[str, dict] = {}
         if self._index_path.exists():
-            self.index = json.loads(self._index_path.read_text())
+            try:
+                self.index = json.loads(self._index_path.read_text())
+            except (json.JSONDecodeError, ValueError):
+                # corrupt index (e.g. an interrupted/partial write) -- quarantine it and
+                # start fresh rather than crashing the engine on construction.
+                try:
+                    self._index_path.replace(self._index_path.with_suffix(".json.corrupt"))
+                except Exception:
+                    pass
+                self.index = {}
 
     def _save_index(self) -> None:
-        self._index_path.write_text(json.dumps(self.index, indent=2))
+        tmp = self._index_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(self.index, indent=2))
+        tmp.replace(self._index_path)          # atomic write (no partial/corrupt index)
 
     def save_full(self, world: WorldGraph) -> WorldSnapshot:
         h = world.content_hash()

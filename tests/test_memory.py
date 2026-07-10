@@ -43,3 +43,36 @@ def test_contractive_merge_and_ema():
     merged = store.merge("m", cand, gain=1.0, t=5)
     assert merged.tau == 5
     assert "c1" in g.neighbors("m", "DERIVED_FROM")
+
+
+def test_cold_cache_hydrates_from_qdrant_for_merge_and_reinforce():
+    """After a cache miss (e.g. restart) reinforce/merge must rehydrate real vectors
+    from Qdrant, not no-op or lose vectors. (V4 fix ❸)"""
+    store, q, g = _store()
+    rng = np.random.default_rng(7)
+    it = MemoryItem(id="m", phi=rng.normal(size=432), h=rng.normal(size=16),
+                    g=rng.normal(size=48), cls="a", tau=0, world_ctx_id="c0")
+    store.insert(it)
+    # simulate a fresh process: the durable stores keep the point, the RAM cache is empty
+    store._cache.clear()
+    hydrated = store.get_item("m")
+    assert hydrated is not None and hydrated.phi.size == 432 and hydrated.cls == "a"
+
+    store._cache.clear()
+    w = store.reinforce("m", gain=2.0)
+    assert w > 0.0  # not the 0.0 dead-path
+
+    store._cache.clear()
+    cand = MemoryItem(id="cand", phi=it.phi + 1, h=it.h, g=it.g, world_ctx_id="c1", tau=9)
+    merged = store.merge("m", cand, gain=1.0, t=9)
+    assert merged is not None and merged.tau == 9  # merge no longer silently drops
+
+
+def test_value_and_affordance_edges_land_in_graph():
+    """Learned values/affordances mirror into the graph as HAS_VALUE / AFFORDS. (V4 fix ❷)"""
+    _, _, g = _store()
+    g.upsert_value("a", "sensitivity", 0.9, "human", 2, world_ctx="ctx0")
+    g.upsert_affordance("a", "triage", "confirm_rtpcr", "data", 1, world_ctx="ctx0")
+    rels = {e[0] for e in g.edges}
+    assert "HAS_VALUE" in rels and "AFFORDS" in rels
+    assert "obj::a" in g.objects and "objective::sensitivity" in g.objectives

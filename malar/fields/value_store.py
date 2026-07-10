@@ -1,8 +1,15 @@
 """Value store: (:Object {class})-[:HAS_VALUE {field, value, source, version, by, world_ctx}]->(:Objective).
 
-In-process source of truth with provenance + versioning. Synced to Neo4j by the
-memory layer. **Human values are sticky**: agents may only *propose* changes, which
-re-enter the HITL queue — they never silently overwrite a human-set value.
+In-process SOURCE OF TRUTH with provenance + versioning. Durability: checkpointed to
+`data/domains/{id}/state.json` by `malar/domains/persistence.py` (survives restart), and
+mirrored into the memory graph as (:Object)-[:HAS_VALUE]->(:Objective) edges by the
+training write path (`DomainService.confirm`, via `MemoryGraph.upsert_value`) for
+visualisation. The graph copy is a projection — this dict remains authoritative. (V4 ❷)
+
+**Human values are sticky**: agents may only *propose* changes; a non-human write to a
+sticky record is rejected here (audited as `reject_sticky`) and must be routed to the
+HITL queue by the caller — see `ObjectiveField.propose_change`. (Auto-requeue of rejected
+proposals is a known gap; see docs/V4_DATAFLOW_FINDINGS.md.)
 """
 from __future__ import annotations
 

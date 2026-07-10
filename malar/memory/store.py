@@ -33,20 +33,45 @@ class MemoryStore:
         return item
 
     def get_item(self, mem_id: str) -> MemoryItem | None:
-        return self._cache.get(mem_id)
+        return self._hydrate(mem_id)
+
+    def _hydrate(self, mem_id: str) -> MemoryItem | None:
+        """Return the cached item, or rebuild it from Qdrant (vectors) + its payload
+        when the in-process cache has missed (e.g. after a restart). Falls back to the
+        graph's payload-only record when Qdrant has no vectors. (V4 fix ❸)"""
+        item = self._cache.get(mem_id)
+        if item is not None:
+            return item
+        rec = self.qdrant.fetch(mem_id)
+        if rec is not None and rec.get("graph_emb") is not None:
+            pay = rec.get("payload") or {}
+            item = MemoryItem(
+                id=mem_id,
+                phi=np.asarray(rec.get("phi") or [0.0], dtype=float),
+                h=np.asarray(rec.get("hyper") or [0.0], dtype=float),
+                g=np.asarray(rec.get("graph_emb") or [0.0], dtype=float),
+                omega=float(pay.get("omega", 1.0)), tau=int(pay.get("tau", 0)),
+                cls=pay.get("class", "__unlabeled__"),
+                world_ctx_id=pay.get("world_ctx_id"), snapshot_id=pay.get("snapshot_id"))
+            self._cache[mem_id] = item
+            return item
+        # last resort: payload-only record from the graph (no vectors available)
+        m = self.graph.get_memory(mem_id)
+        if m is None:
+            return None
+        item = MemoryItem(id=mem_id, phi=np.zeros(1), h=np.zeros(1), g=np.zeros(1),
+                          omega=float(m.get("omega", 1.0)), tau=int(m.get("tau", 0)),
+                          cls=m.get("class", "__unlabeled__"),
+                          world_ctx_id=m.get("world_ctx_id"), snapshot_id=m.get("snapshot_id"))
+        self._cache[mem_id] = item
+        return item
 
     def reinforce(self, mem_id: str, gain: float) -> float:
         rho = self.s.rho
         assert 0.0 < rho < 1.0, "EMA rho must satisfy 0<rho<1"
-        item = self._cache.get(mem_id)
+        item = self._hydrate(mem_id)
         if item is None:
-            m = self.graph.get_memory(mem_id)
-            if m is None:
-                return 0.0
-            item = MemoryItem(id=mem_id, phi=np.zeros(1), h=np.zeros(1), g=np.zeros(1),
-                              omega=float(m.get("omega", 1.0)), tau=int(m.get("tau", 0)),
-                              cls=m.get("class", "__unlabeled__"))
-            self._cache[mem_id] = item
+            return 0.0
         item.omega = rho * item.omega + (1.0 - rho) * float(gain)
         self.graph.upsert_memory(item)
         if item.phi.size > 1:
@@ -57,8 +82,10 @@ class MemoryStore:
         """Contractive merge: target moves a fraction c<1 toward the candidate."""
         c = self.s.merge_contraction
         assert c < 1.0, "merge must be contractive (c<1)"
-        target = self._cache.get(target_id)
-        if target is None:
+        # Hydrate from Qdrant on a cache miss so merges are not silently dropped after a
+        # restart (previously returned None whenever the target wasn't cached). (V4 fix ❸)
+        target = self._hydrate(target_id)
+        if target is None or target.phi.size <= 1:
             return None
         target.phi = (1 - c) * target.phi + c * _fit(cand.phi, target.phi.shape)
         target.h = (1 - c) * target.h + c * _fit(cand.h, target.h.shape)

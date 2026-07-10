@@ -99,13 +99,13 @@ export default function DebugConsole() {
       <h3 className="mt-4 mb-1 text-sm font-semibold text-slate-700">Agents · gates · curator · memory (live)</h3>
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <DebugBox title="Engine config / theorem guards" tone="indigo"><KV obj={flat(d.config)} /></DebugBox>
-        <DebugBox title="Gates (conformal / OOD)" tone="amber"><KV obj={flat(d.gates.conformal)} /></DebugBox>
+        <DebugBox title="Gates (conformal / OOD)" tone="amber"><KV obj={flat(d.gates?.conformal)} /></DebugBox>
 
         <DebugBox title="Curator agent (async)" tone="green">
-          <p className="mb-1 text-[11px] text-slate-500">{d.curator.description}</p>
-          <KV obj={{ memory_size: d.curator.memory_size, ...d.curator.config }} />
+          <p className="mb-1 text-[11px] text-slate-500">{d.curator?.description}</p>
+          <KV obj={{ memory_size: d.curator?.memory_size, ...(d.curator?.config || {}) }} />
           <div className="mt-2 text-[10px] uppercase tracking-wider text-slate-500">decision audit (latest)</div>
-          <Table rows={d.curator.audit_tail.slice().reverse()} cols={["op", "mem_id", "evicted"]} />
+          <Table rows={(d.curator?.audit_tail || []).slice().reverse()} cols={["op", "mem_id", "evicted"]} />
         </DebugBox>
 
         <DebugBox title="Last event (exact data received)" tone="indigo">
@@ -113,20 +113,20 @@ export default function DebugConsole() {
         </DebugBox>
 
         <DebugBox title="Object agent — registry objects">
-          <p className="mb-1 text-[11px] text-slate-500">{d.object_agent.description}</p>
-          <Table rows={d.object_agent.objects}
+          <p className="mb-1 text-[11px] text-slate-500">{d.object_agent?.description}</p>
+          <Table rows={d.object_agent?.objects}
             cols={["class", "provenance", "candidate", "phi_norm", "h_norm", "g_norm", "tau"]} />
         </DebugBox>
 
         <DebugBox title="Value agents A_k — {v_k,c}">
-          <p className="mb-1 text-[11px] text-slate-500">{d.value_agents.description}</p>
-          <Table rows={d.value_agents.records}
+          <p className="mb-1 text-[11px] text-slate-500">{d.value_agents?.description}</p>
+          <Table rows={d.value_agents?.records}
             cols={["objective_k", "class", "value", "source", "version", "sticky"]} />
         </DebugBox>
 
         <DebugBox title="Functional agents B_j — affordances">
-          <p className="mb-1 text-[11px] text-slate-500">{d.functional_agents.description}</p>
-          <Table rows={d.functional_agents.records}
+          <p className="mb-1 text-[11px] text-slate-500">{d.functional_agents?.description}</p>
+          <Table rows={d.functional_agents?.records}
             cols={["class", "dim", "action", "enabled", "source", "version"]} />
         </DebugBox>
 

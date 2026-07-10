@@ -57,7 +57,8 @@ def check_gateway(do_completion: bool = True) -> bool:
         models = client.list_models()
         _ok(f"Gateway {s.llm_base_url} ({len(models)} models)")
         if do_completion:
-            out = client.complete("malar-fast", "Reply with the single word: ok")
+            # 'fast' ROLE via the route table, not a hardcoded alias literal. (V4 fix)
+            out = client.fast("Reply with the single word: ok", source="health")
             _ok(f"Gateway completion -> {out[:40]!r}")
         return True
     except Exception as e:  # noqa: BLE001

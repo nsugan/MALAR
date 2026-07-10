@@ -7,10 +7,12 @@ import WorldGraphTab from "./tabs/WorldGraphTab.jsx";
 import KnowledgeTab from "./tabs/KnowledgeTab.jsx";
 import TestInferenceTab from "./tabs/TestInferenceTab.jsx";
 import { Chip } from "./components/Card.jsx";
+import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import DebugConsole from "./components/DebugConsole.jsx";
 import LLMTab from "./tabs/LLMTab.jsx";
 import AgentsTab from "./tabs/AgentsTab.jsx";
 import InferencePredictionTab from "./tabs/InferencePredictionTab.jsx";
+import AgentFactoryTab from "./tabs/AgentFactoryTab.jsx";
 
 const TABS = [
   ["domains", "Domains", DomainsTab],
@@ -23,6 +25,7 @@ const TABS = [
   ["llm", "LLM", LLMTab],
   ["debug", "Debug", DebugConsole],
   ["predict", "Inference and Prediction", InferencePredictionTab],
+  ["factory", "Agent Factory", AgentFactoryTab],
 ];
 
 function Header() {
@@ -71,7 +74,9 @@ function Shell() {
           ))}
         </div>
       </nav>
-      <main className="mx-auto max-w-7xl px-4 py-4"><Active /></main>
+      <main className="mx-auto max-w-7xl px-4 py-4">
+        <ErrorBoundary key={tab}><Active /></ErrorBoundary>
+      </main>
     </div>
   );
 }

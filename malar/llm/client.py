@@ -1,12 +1,12 @@
 """LLM gateway client — a thin OpenAI-compatible client pointed at LiteLLM.
 
-Agents call ONLY this client, BY ALIAS (malar-reasoner / malar-fast / malar-vision /
-malar-frontier). The provider/model behind each alias is chosen in
-infra/litellm_config.yaml — never in code. Default routing is local Ollama.
+Agents call ONLY this client, BY ROLE. Each role's ALIAS is resolved as:
+    runtime route (LLM tab) -> env default (settings.alias_*) -> the alias in the config.
+The provider/model behind each alias lives in infra/litellm_config.yaml — never in code.
+Any role can be routed to ANY alias (local Ollama or a cloud API), all through LiteLLM.
 
-Every call (prompt + response or error + latency + caller) is recorded in a shared
-ring buffer (LLM_LOG) so the Web UI can show exactly what queries went to the LLM and
-what came back.
+Every call (prompt + response or error + latency + caller) is recorded in a shared ring
+buffer (LLM_LOG) so the Web UI can show exactly what went to the LLM and what came back.
 """
 from __future__ import annotations
 
@@ -42,11 +42,9 @@ def clear_log() -> int:
     return n
 
 
-# Runtime provider routing — which configured ALIAS each agent role uses.
-# None => use the env default (settings.alias_*). Set from the UI to switch providers
-# (local Ollama vs frontier Claude / OpenAI / DeepSeek). Provider/model still lives in
-# infra/litellm_config.yaml; this only chooses which alias the role maps to.
-_ROUTE: dict = {"reasoner": None, "fast": None, "vision": None}
+# Runtime provider routing — which configured ALIAS each agent role uses. None => the env
+# default (settings.alias_*). Set from the LLM tab to route any role to any provider.
+_ROUTE: dict = {"reasoner": None, "fast": None, "vision": None, "coder": None, "algo": None}
 
 
 def set_route(role: str, alias: str | None) -> dict:
@@ -110,7 +108,7 @@ class LLMClient:
 
     def vision(self, alias: str, prompt: str, image_b64: str,
                max_tokens: int = 1536, source: str = "agent") -> str:
-        """Multimodal call (Gemma 3n is multimodal). image_b64 is a data URL payload."""
+        """Multimodal call (Gemma is multimodal). image_b64 is a data URL payload."""
         content = [
             {"type": "text", "text": prompt},
             {"type": "image_url", "image_url": {"url": image_b64}},
@@ -140,3 +138,11 @@ class LLMClient:
 
     def vision_route(self, prompt: str, image_b64: str, **kw) -> str:
         return self.vision(_ROUTE["vision"] or self.s.alias_vision, prompt, image_b64, **kw)
+
+    def code(self, prompt: str, **kw) -> str:
+        """Agent CODE generation. Alias = LLM-tab route -> env default -> any LiteLLM alias."""
+        return self.complete(_ROUTE["coder"] or self.s.alias_coder, prompt, source="coder", **kw)
+
+    def algo(self, prompt: str, **kw) -> str:
+        """ALGORITHM design. Alias = LLM-tab route -> env default -> any LiteLLM alias."""
+        return self.complete(_ROUTE["algo"] or self.s.alias_algo, prompt, source="algo", **kw)

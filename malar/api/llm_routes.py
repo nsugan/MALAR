@@ -63,6 +63,8 @@ class RouteCmd(BaseModel):
     reasoner: str | None = None
     fast: str | None = None
     vision: str | None = None
+    coder: str | None = None
+    algo: str | None = None
 
 
 @router.get("/route")
@@ -74,17 +76,16 @@ def route():
         models = []
     return {"route": get_route(),
             "defaults": {"reasoner": _client.s.alias_reasoner, "fast": _client.s.alias_fast,
-                         "vision": _client.s.alias_vision},
+                         "vision": _client.s.alias_vision,
+                         "coder": _client.s.alias_coder, "algo": _client.s.alias_algo},
             "available": models,
             "frontier_aliases": ["malar-claude", "malar-openai", "malar-deepseek", "malar-frontier"]}
 
 
 @router.put("/route")
 def set_route_ep(cmd: RouteCmd):
-    if cmd.reasoner is not None:
-        set_route("reasoner", cmd.reasoner or None)
-    if cmd.fast is not None:
-        set_route("fast", cmd.fast or None)
-    if cmd.vision is not None:
-        set_route("vision", cmd.vision or None)
+    for role in ("reasoner", "fast", "vision", "coder", "algo"):
+        val = getattr(cmd, role)
+        if val is not None:
+            set_route(role, val or None)
     return {"route": get_route()}

@@ -31,6 +31,13 @@ class MemoryGraph(Protocol):
     def upsert_world_context(self, ctx: dict) -> None: ...
     def upsert_snapshot(self, snap: dict) -> None: ...
     def memories_in_snapshot(self, snapshot_id: str) -> list[str]: ...
+    # Grounded knowledge edges (V4 fix ❷): mirror the in-process value/functional
+    # stores into the graph so (:Object)-[:HAS_VALUE]->(:Objective) and
+    # (:Object)-[:AFFORDS]->(:Action) actually exist and can be visualised.
+    def upsert_value(self, object_class: str, field_k: str, value: float, source: str,
+                     version: int, world_ctx: str | None = None) -> None: ...
+    def upsert_affordance(self, object_class: str, dim: str, action: str, source: str,
+                          version: int, world_ctx: str | None = None) -> None: ...
 
 
 class InMemoryGraph:
@@ -88,6 +95,51 @@ class InMemoryGraph:
     def memories_in_snapshot(self, snapshot_id: str) -> list[str]:
         ctx_ids = {c["id"] for c in self.contexts.values() if c.get("snapshot_id") == snapshot_id}
         return [m["id"] for m in self.memories.values() if m.get("world_ctx_id") in ctx_ids]
+
+    def wipe_domain(self) -> int:
+        n = len(self.memories)
+        self.memories.clear()
+        self.contexts.clear()
+        self.snapshots.clear()
+        self.edges.clear()
+        return n
+
+    def wipe_all(self) -> int:
+        return self.wipe_domain()
+
+    # -- grounded knowledge (values / affordances) — V4 fix ❷ ----------
+    def upsert_value(self, object_class: str, field_k: str, value: float, source: str,
+                     version: int, world_ctx: str | None = None) -> None:
+        self.objects = getattr(self, "objects", {})
+        self.objectives = getattr(self, "objectives", {})
+        oid, kid = f"obj::{object_class}", f"objective::{field_k}"
+        self.objects.setdefault(oid, {"id": oid, "class": object_class})
+        self.objectives.setdefault(kid, {"id": kid, "key": field_k})
+        self.edges = [e for e in self.edges
+                      if not (e[0] == "HAS_VALUE" and e[1] == oid and e[2] == kid)]
+        self.link("HAS_VALUE", oid, kid, {"field": field_k, "value": float(value),
+                  "source": source, "version": version, "world_ctx": world_ctx})
+
+    def upsert_affordance(self, object_class: str, dim: str, action: str, source: str,
+                          version: int, world_ctx: str | None = None) -> None:
+        self.objects = getattr(self, "objects", {})
+        self.actions = getattr(self, "actions", {})
+        oid, aid = f"obj::{object_class}", f"action::{dim}::{action}"
+        self.objects.setdefault(oid, {"id": oid, "class": object_class})
+        self.actions.setdefault(aid, {"id": aid, "dim": dim, "action": action})
+        self.edges = [e for e in self.edges
+                      if not (e[0] == "AFFORDS" and e[1] == oid and e[2] == aid)]
+        self.link("AFFORDS", oid, aid, {"dim": dim, "action": action, "source": source,
+                  "version": version, "world_ctx": world_ctx})
+
+    def add_agent_output(self, rec: dict) -> None:
+        if not hasattr(self, "agent_outs"):
+            self.agent_outs = []
+        self.agent_outs.append(dict(rec))
+
+    def agent_outputs(self, domain_id: str | None = None) -> list[dict]:
+        outs = getattr(self, "agent_outs", [])
+        return [o for o in outs if domain_id is None or o.get("domain_id") == domain_id]
 
 
 class Neo4jGraph:
@@ -176,6 +228,74 @@ class Neo4jGraph:
                    RETURN m.id AS id""", snap=snapshot_id)
             return [r["id"] for r in res]
 
+    def wipe_domain(self) -> int:
+        """Delete every Memory (and orphaned grounding) for THIS domain only."""
+        with self.driver.session() as s:
+            rec = s.run(
+                """MATCH (m:Memory {domain_id:$d}) DETACH DELETE m RETURN count(m) AS n""",
+                d=self.domain_id).single()
+            return int(rec["n"]) if rec and rec["n"] is not None else 0
+
+    def wipe_all(self) -> int:
+        """Delete EVERYTHING in the graph (full fresh start across all domains)."""
+        with self.driver.session() as s:
+            rec = s.run("MATCH (n) DETACH DELETE n RETURN count(n) AS n").single()
+            return int(rec["n"]) if rec and rec["n"] is not None else 0
+
+
+    # -- grounded knowledge (values / affordances) — V4 fix ❷ ----------
+    def upsert_value(self, object_class: str, field_k: str, value: float, source: str,
+                     version: int, world_ctx: str | None = None) -> None:
+        with self.driver.session() as s:
+            s.run(
+                """MERGE (o:Object {class:$cls, domain_id:$dom})
+                   MERGE (k:Objective {key:$field, domain_id:$dom})
+                   MERGE (o)-[r:HAS_VALUE]->(k)
+                   SET r.value=$value, r.source=$source, r.version=$version,
+                       r.world_ctx=$wc""",
+                cls=object_class, field=field_k, value=float(value), source=source,
+                version=version, wc=world_ctx, dom=self.domain_id)
+
+    def upsert_affordance(self, object_class: str, dim: str, action: str, source: str,
+                          version: int, world_ctx: str | None = None) -> None:
+        with self.driver.session() as s:
+            s.run(
+                """MERGE (o:Object {class:$cls, domain_id:$dom})
+                   MERGE (a:Action {dim:$dim, action:$action, domain_id:$dom})
+                   MERGE (o)-[r:AFFORDS]->(a)
+                   SET r.source=$source, r.version=$version, r.world_ctx=$wc""",
+                cls=object_class, dim=dim, action=action, source=source,
+                version=version, wc=world_ctx, dom=self.domain_id)
+
+    def add_agent_output(self, rec: dict) -> None:
+        import json as _json
+        with self.driver.session() as s:
+            s.run(
+                """MERGE (a:AgentOutput {id:$id})
+                   SET a.agent_id=$agent_id, a.agent_name=$agent_name, a.parent=$parent,
+                       a.domain_id=$domain_id, a.cls=$cls, a.output=$output, a.ts=$ts
+                   WITH a MERGE (d:Domain {id:$domain_id}) MERGE (a)-[:IN_DOMAIN]->(d)""",
+                id=rec["id"], agent_id=rec.get("agent_id"), agent_name=rec.get("agent_name"),
+                parent=rec.get("parent"), domain_id=rec.get("domain_id"), cls=rec.get("cls"),
+                output=_json.dumps(rec.get("output")), ts=rec.get("ts"))
+
+    def agent_outputs(self, domain_id: str | None = None) -> list[dict]:
+        import json as _json
+        with self.driver.session() as s:
+            q = "MATCH (a:AgentOutput) "
+            if domain_id:
+                q += "WHERE a.domain_id=$d "
+            res = s.run(q + "RETURN a ORDER BY a.ts DESC", d=domain_id)
+            out = []
+            for r in res:
+                a = dict(r["a"])
+                try:
+                    a["output"] = _json.loads(a.get("output") or "null")
+                except Exception:
+                    pass
+                out.append(a)
+            return out
+
     def close(self) -> None:
         self.driver.close()
 
@@ -184,8 +304,7 @@ def make_memory_graph(prefer_real: bool = True, domain_id: str = "default") -> M
     s = get_settings()
     if prefer_real:
         try:
-            g = Neo4jGraph(s.neo4j_uri, s.neo4j_user, s.neo4j_password, domain_id=domain_id)
-            return g
+            return Neo4jGraph(s.neo4j_uri, s.neo4j_user, s.neo4j_password, domain_id=domain_id)
         except Exception as e:  # noqa: BLE001
             print(f"[memory] Neo4j unreachable ({e}); in-memory graph fallback (domain={domain_id}).")
     return InMemoryGraph(domain_id=domain_id)

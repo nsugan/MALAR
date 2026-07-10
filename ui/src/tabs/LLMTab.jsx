@@ -138,23 +138,26 @@ function ProviderRouting() {
   const [r, setR] = useState(null);
   const [edit, setEdit] = useState({});
   const [saved, setSaved] = useState(false);
-  const load = () => api.llmRoute().then((d) => { setR(d); setEdit({}); });
-  useEffect(load, []);
+  const load = () => api.llmRoute().then((d) => { setR(d); setEdit({}); }).catch(() => {});
+  // NB: don't pass `load` directly to useEffect — it returns a Promise, and useEffect
+  // treats any non-function return as a (skipped) cleanup. Wrap it so nothing is returned.
+  useEffect(() => { load(); }, []);
   if (!r) return null;
 
+  const defaults = r.defaults || {};
   const options = Array.from(new Set([
     ...(r.available || []),
     ...(r.frontier_aliases || []),
-    r.defaults.reasoner, r.defaults.fast, r.defaults.vision,
+    defaults.reasoner, defaults.fast, defaults.vision, defaults.coder, defaults.algo,
   ].filter(Boolean)));
   const cur = (role) => edit[role] ?? (r.route[role] || "");
   const apply = async () => {
     const body = {};
-    ["reasoner", "fast", "vision"].forEach((role) => { if (edit[role] !== undefined) body[role] = edit[role]; });
+    ["reasoner", "fast", "vision", "coder", "algo"].forEach((role) => { if (edit[role] !== undefined) body[role] = edit[role]; });
     await api.llmSetRoute(body); setSaved(true); setTimeout(() => setSaved(false), 2000); load();
   };
   const isFrontier = (v) => (r.frontier_aliases || []).includes(v);
-  const anyFrontier = ["reasoner", "fast", "vision"].some((role) => isFrontier(cur(role)));
+  const anyFrontier = ["reasoner", "fast", "vision", "coder", "algo"].some((role) => isFrontier(cur(role)));
 
   return (
     <Card title="Model routing — which provider the agents use"
@@ -165,12 +168,12 @@ function ProviderRouting() {
         (requires the key in <code>.env</code> and <b>sends data off-box</b>).
       </p>
       <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-        {["reasoner", "fast", "vision"].map((role) => (
+        {["reasoner", "fast", "vision", "coder", "algo"].map((role) => (
           <div key={role}>
             <label className="text-[11px] text-slate-600">{role}</label>
             <select value={cur(role)} onChange={(e) => setEdit((x) => ({ ...x, [role]: e.target.value }))}
               className="w-full px-2 py-1.5 text-sm">
-              <option value="">(default: {r.defaults[role]})</option>
+              <option value="">(default: {defaults[role]})</option>
               {options.map((o) => <option key={o} value={o}>{o}{isFrontier(o) ? "  ⚠ frontier" : ""}</option>)}
             </select>
           </div>

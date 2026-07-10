@@ -82,7 +82,7 @@ function Supervised({ did }) {
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <Card title="World graph (region)"><GraphView data={pv.graph} height={200} /></Card>
         <Card title="Topology (persistence)"><TopologyView diagram={pv.topology.h1_diagram} summary={pv.topology.summary} /></Card>
-        <Card title="Hyperspectral"><HyperspectralView spectrum={pv.hyper.spectrum} reconError={pv.hyper.recon_error} /></Card>
+        <Card title="Spectral encoder (signal)"><HyperspectralView spectrum={pv.hyper.spectrum} reconError={pv.hyper.recon_error} /></Card>
       </div>
       <Card title="Proposed knowledge">
         <div className="flex flex-wrap gap-4 text-sm">

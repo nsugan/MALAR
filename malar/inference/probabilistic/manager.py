@@ -126,7 +126,12 @@ class InferenceManager:
 
         hits = self.engine.c.registry.topk(fe.phi, fe.h, fe.g, k=3)
         best_score = hits[0].score if hits else 0.0
-        ood = self.ood.combined(best_score, fe.world_emb)
+        # Context-validity gate: query with fe.g, the SAME embedding space as the
+        # contexts registered from each object's o.g (see __init__). Previously this
+        # passed fe.world_emb, a different projection than the registered o.g vectors,
+        # so the cosine comparison crossed embedding spaces and the drift signal was
+        # meaningless. InferenceService uses fe.g too — both paths now agree. (V4 fix ❶)
+        ood = self.ood.combined(best_score, fe.g)
         confidence = best_score * fe.confidence_scale
         is_ood = ood.ood or confidence < self.ood.threshold
 

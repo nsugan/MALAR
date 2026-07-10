@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Card from "./Card.jsx";
 export default function InferenceConsole({ onInfer }) {
-  const [text, setText] = useState("possible sars_cov_2 signature in sample 7");
+  const [text, setText] = useState("describe the input, referencing a known class");
   const [result, setResult] = useState(null);
   const run = async () => setResult(await onInfer({ text }));
   return (

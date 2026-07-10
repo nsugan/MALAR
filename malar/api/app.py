@@ -16,6 +16,7 @@ from malar.api.control import build_control_router
 from malar.api.domains import router as domains_router
 from malar.api.graph import router as graph_router
 from malar.api.llm_routes import router as llm_router
+from malar.api.agent_routes import router as agent_router
 from malar.api.predict_routes import router as predict_router
 from malar.api.results import router as results_router
 from malar.api.session import EngineSession
@@ -154,3 +155,4 @@ app.include_router(graph_router)
 app.include_router(results_router)
 app.include_router(llm_router)
 app.include_router(predict_router)
+app.include_router(agent_router)

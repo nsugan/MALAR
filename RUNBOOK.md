@@ -7,7 +7,7 @@ There are two ways to run MALAR:
 - **Route B — Local engine only** (just Python, no Docker). Fastest way to see it work: runs the
   loop, training campaign, eval, inference and the test suite using in-process/embedded stores.
 
-Your folder: `C:\Users\HP\OneDrive\MALAR_V2`
+Your folder: `C:\Dev\MALAR`
 
 ---
 
@@ -22,7 +22,7 @@ Your folder: `C:\Users\HP\OneDrive\MALAR_V2`
 ### A2. Open a terminal in the project
 Open **PowerShell**, then:
 ```powershell
-cd C:\Users\HP\OneDrive\MALAR_V2
+cd C:\Dev\MALAR
 ```
 
 ### A3. Create the .env file
@@ -104,7 +104,7 @@ Install from python.org (tick **"Add Python to PATH"**).
 
 ### B2. Create a virtual environment + install
 ```powershell
-cd C:\Users\HP\OneDrive\MALAR_V2
+cd C:\Dev\MALAR
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
@@ -146,7 +146,7 @@ uvicorn malar.api.app:app --reload --port 8000
 ```
 Terminal 2 (UI dev server — needs Node 18+ from nodejs.org):
 ```powershell
-cd C:\Users\HP\OneDrive\MALAR_V2\ui
+cd C:\Dev\MALAR\ui
 npm install
 npm run dev
 ```

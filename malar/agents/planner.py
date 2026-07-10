@@ -51,7 +51,7 @@ class DomainPlanner:
 
     # -- Orchestrator: derive the plan from the description -----------
     def plan_domain(self, description: str, classes: list[str] | None = None,
-                    folder_summary: str | None = None, adapter_type: str = "raman") -> dict:
+                    folder_summary: str | None = None, adapter_type: str = "synthetic") -> dict:
         classes = classes or []
         prompt = (
             f"Dataset description:\n{description or '(none provided)'}\n"
@@ -113,6 +113,18 @@ class DomainPlanner:
 
     # -- deterministic fallback (no gateway) -------------------------
     def _fallback_plan(self, adapter_type: str, classes: list[str]) -> dict:
+        # Generic default preset (domain-agnostic). Legacy raman/sensor presets are kept
+        # only for pre-existing domains that still declare those adapter types.
+        generic = {
+            "objectives": [{"key": "quality", "description": "overall quality / correctness",
+                            "direction": "maximize", "target": 0.8},
+                           {"key": "confidence", "description": "identification confidence",
+                            "direction": "maximize", "target": 0.8}],
+            "functionals": [{"dim": "response", "actions": ["flag", "watchlist", "escalate"]}],
+            "processing_steps": ["persistence homology (topology)", "spectral autoencoder",
+                                 "graph kNN embedding"],
+            "extra_agents": [],
+        }
         presets = {
             "raman": {
                 "objectives": [
@@ -121,11 +133,10 @@ class DomainPlanner:
                     {"key": "specificity", "description": "true-negative rate",
                      "direction": "maximize", "target": 0.9}],
                 "functionals": [{"dim": "response",
-                                 "actions": ["confirm_rtpcr", "escalate", "watchlist"]}],
-                "processing_steps": ["parse spectra (shift,intensity)", "baseline/normalise",
+                                 "actions": ["confirm", "escalate", "watchlist"]}],
+                "processing_steps": ["parse signal", "baseline/normalise",
                                      "persistence homology", "spectral autoencoder", "graph kNN"],
-                "extra_agents": [{"name": "PeakDetector",
-                                  "role": "locate characteristic Raman peaks per class"}],
+                "extra_agents": [],
             },
             "sensor": {
                 "objectives": [{"key": "yield", "description": "process yield",
@@ -133,15 +144,11 @@ class DomainPlanner:
                                {"key": "defect_rate", "description": "defect fraction",
                                 "direction": "minimize", "target": 0.05}],
                 "functionals": [{"dim": "response",
-                                 "actions": ["adjust_feed_rate", "re_tool", "hold_lot", "flag"]}],
+                                 "actions": ["adjust", "hold", "flag"]}],
                 "processing_steps": ["window streams", "spatio-temporal graph", "encoders"],
                 "extra_agents": [],
             },
         }
-        p = presets.get(adapter_type, {
-            "objectives": [{"key": "quality", "description": "overall quality",
-                            "direction": "maximize", "target": 0.8}],
-            "functionals": [{"dim": "response", "actions": ["flag", "watchlist"]}],
-            "processing_steps": ["encoders"], "extra_agents": []})
+        p = presets.get(adapter_type, generic)
         p["rationale"] = "deterministic preset (LLM gateway unavailable)"
         return p

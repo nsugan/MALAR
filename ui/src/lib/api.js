@@ -21,8 +21,9 @@ export const api = {
   listDomains: () => req("/domains"),
   createDomain: (b) => post("/domains", b),
   selectDomain: (id) => post(`/domains/${id}/select`),
-  resetDomain: (id) => post(`/domains/${id}/reset`),
-  deleteDomain: (id) => del(`/domains/${id}`),
+  resetDomain: (id, purge = true) => post(`/domains/${id}/reset?purge_memory=${purge}`),
+  deleteDomain: (id, purge = true) => del(`/domains/${id}?purge_memory=${purge}`),
+  wipeMemory: () => post(`/domains/wipe-memory`),
   getConfig: (id) => req(`/domains/${id}/config`),
   putConfig: (id, b) => put(`/domains/${id}/config`, b),
   // train
@@ -65,6 +66,21 @@ export const api = {
   predictCrossref: (id, b) => post(`/domains/${id}/predict/crossref`, b),
   predictFeedback: (id, b) => post(`/domains/${id}/predict/feedback`, b),
   predictEscalate: (id, b) => post(`/domains/${id}/predict/escalate`, b),
+
+  // Agent Factory (generated agents)
+  agentProposals: (id, source) => req(`/domains/${id}/agents/proposals?source=${source}`),
+  generateAgent: (b) => post(`/agents/generate`, b),
+  listAgents: () => req(`/agents`),
+  getAgent: (aid) => req(`/agents/${aid}`),
+  validateAgent: (aid, validated) => post(`/agents/${aid}/validate`, { validated }),
+  runAgent: (aid, b) => post(`/agents/${aid}/run`, b),
+  updateAgentCode: (aid, code, did) => put(`/agents/${aid}/code`, { code, did }),
+  testAgent: (aid, b) => post(`/agents/${aid}/test`, b),
+  deleteAgent: (aid) => del(`/agents/${aid}`),
+  activateAgents: (id, onlyValidated) => post(`/domains/${id}/agents/activate`, { only_validated: onlyValidated }),
+  agentOutputs: (id) => req(`/domains/${id}/agents/outputs`),
+  useAgents: (id, active) => post(`/domains/${id}/agents/use`, { active }),
+  agentsStatus: (id) => req(`/domains/${id}/agents/status`),
   results: (id, runId) => req(`/domains/${id}/results/${runId}`),
   compare: (id, runId) => req(`/domains/${id}/results/${runId}/compare`),
 };

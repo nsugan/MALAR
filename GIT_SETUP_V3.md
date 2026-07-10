@@ -8,7 +8,7 @@ folder** — OneDrive locks `.git/config`/`.git/index`, which corrupts the repo
 1. Right-click the OneDrive cloud icon → **Pause syncing → 2 hours**.
 2. Open **PowerShell** in the project:
    ```powershell
-   cd C:\Users\HP\OneDrive\MALAR_V2
+   cd C:\Dev\MALAR
    Remove-Item -Recurse -Force .git -ErrorAction SilentlyContinue   # clear any broken repo
    ```
 3. Run the setup script (below), or the commands manually.
@@ -18,7 +18,7 @@ folder** — OneDrive locks `.git/config`/`.git/index`, which corrupts the repo
 OneDrive + Git will keep fighting. Consider keeping the working repo at e.g.
 `C:\dev\MALAR` and letting OneDrive hold only backups/zips. To move:
 ```powershell
-robocopy C:\Users\HP\OneDrive\MALAR_V2 C:\dev\MALAR /E /XD node_modules .venv __pycache__ .git
+robocopy C:\Dev\MALAR C:\dev\MALAR /E /XD node_modules .venv __pycache__ .git
 cd C:\dev\MALAR
 ```
 then run the setup below there.
@@ -40,7 +40,7 @@ local `.env` and in the zip backup.
 
 ## Optional: push to a private remote
 ```powershell
-git remote add origin <https://github.com/nsugan/MALAR>
+git remote add origin <your-private-repo-url>
 git push -u origin v3
 git push origin v2          # push the tag too
 ```

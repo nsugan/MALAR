@@ -55,7 +55,7 @@ export default function InputInspector() {
             <div className="mt-2"><KV obj={data.raw.stats} /></div>
           </DebugBox>
 
-          <DebugBox title="② Display — spectra (samples + mean)" tone="indigo">
+          <DebugBox title="② Display — signal (samples + mean)" tone="indigo">
             <SpectraPlot spectra={data.spectra} />
           </DebugBox>
 
@@ -97,7 +97,7 @@ export default function InputInspector() {
               <JsonBox data={{ H0: data.topology.h0, H1: data.topology.h1, H2: data.topology.h2 }} /></details>
           </DebugBox>
 
-          <DebugBox title="⑧ Hyperspectral — encode / reconstruct" tone="amber">
+          <DebugBox title="⑧ Spectral encoder — encode / reconstruct" tone="amber">
             <ReconPlot mean={data.spectral.mean_spectrum} recon={data.spectral.reconstructed_mean} />
             <div className="mt-1 text-[11px] text-slate-500">recon error: <b className="text-slate-700">{data.spectral.recon_error}</b></div>
             <div className="mt-1 text-[10px] uppercase tracking-wider text-slate-400">latent codes (per node)</div>

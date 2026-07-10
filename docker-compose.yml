@@ -18,10 +18,15 @@ services:
     volumes: ["qdrant_data:/qdrant/storage"]
 
   ollama:
-    image: ollama/ollama:0.30.8          # pin
+    image: ollama/ollama:latest          # newest Ollama (re-pin once a good version is found)
     ports: ["11434:11434"]
     volumes: ["ollama_models:/root/.ollama"]
-    deploy:
+    gpus: all                            # explicit NVIDIA passthrough (== docker run --gpus all)
+    environment:
+      - OLLAMA_KEEP_ALIVE=-1             # keep the model resident in VRAM (no reload latency)
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    deploy:                              # fallback for older compose that ignores `gpus:`
       resources:
         reservations:
           devices:
@@ -41,8 +46,13 @@ services:
     build: .
     depends_on: [neo4j, qdrant, litellm]
     env_file: [.env]
+    environment:
+      - AGENT_DB_PATH=/var/lib/malar/agents/agent_memory.sqlite   # generated-agent store
     ports: ["8000:8000"]
-    volumes: ["./:/app"]
+    volumes:
+      - "./:/app"
+      - "agent_db:/var/lib/malar/agents"  # dedicated volume for the SQLite agent memory
+                                          # (real fs -> no bind-mount SQLite locking issues)
 
   webapp:
     build: ./ui
@@ -53,3 +63,4 @@ volumes:
   neo4j_data: {}
   qdrant_data: {}
   ollama_models: {}
+  agent_db: {}

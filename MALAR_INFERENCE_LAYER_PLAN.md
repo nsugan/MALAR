@@ -1,6 +1,23 @@
 # MALAR V3 — Probabilistic Inference & Prediction Layer (PLAN, for review)
 
-**Status: REVIEWED & APPROVED (Q1–Q7 answered 2026-06-29). Decisions locked in §8.**
+**Status: SHIPPED (as-built).** Q1–Q7 were locked 2026-06-29 (§8) and all seven agents
+(I0–I7, including the second-pass cross-domain/diffusion/RL agents) are implemented and
+tested — see `CHANGELOG.md`. This document was **re-audited against the running code on
+2026-07-06**; see `MALAR_MASTER_PLAN_v2.md` §19.5 for the full as-implemented algorithm
+and a per-decision confirm/deny table, and §20 for open follow-ups. The two points where
+code diverges from what's locked below:
+- **Q5 (value posteriors)** — shipped as an **ephemeral Normal**, computed on-the-fly in
+  `mcmc.py`'s `ValuePosterior` from the point value + corpus count. It is **not**
+  persisted on `ValueRecord` and there is no Beta-distribution variant anywhere in the
+  code, despite §2.3/§8 describing a persisted Beta/Normal posterior.
+- **§3.1 endpoints** — `POST /predict`, `GET /predict/agents`, `POST /predict/crossref`,
+  and (added later, not in this original list) `POST /predict/feedback` and
+  `POST /predict/escalate` all exist in `malar/api/predict_routes.py`. **`GET
+  /predict/{run_id}` was never implemented** — predictions are computed live and are not
+  persisted for later retrieval; treat that line in §3.1 as aspirational, not shipped.
+
+Everything else below (Q1–Q4, Q6, Q7, the math in §2, the module layout in §3) matches
+the running code closely.
 
 > **Cross-cutting rule from review:** every inference method (likelihoods, bandit,
 > diffusion, MCMC) is **fit/run over the WHOLE training corpus of the domain**, not a single

@@ -19,9 +19,27 @@ from malar.domains.manager import DomainManager, get_manager
 from malar.encoders.change import cosine_similarity
 from malar.fields.functional_field import region_action_set
 from malar.memory.schema import MemoryItem, new_memory_id
-from malar.world.adapters.raman import _CLASS_PEAKS, _spectrum, cosine_knn_graph
+from malar.world.adapters.synthetic import synthetic_class_cloud
 from malar.world.context import make_context
-from malar.world.graph import WorldGraph, knn_graph_from_points
+from malar.world.graph import WorldGraph, cosine_knn_graph, knn_graph_from_points
+
+# Generic default classes for the built-in synthetic demo when a domain configures none.
+_GENERIC_CLASSES = ["class_a", "class_b", "class_c"]
+# Supported data-file extensions (domain-agnostic): numeric tables/arrays, images, video.
+_NUMERIC_EXT = {".npy", ".npz", ".csv", ".txt", ".asc", ".spc", ".dat", ".tsv"}
+_IMAGE_EXT = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
+_VIDEO_EXT = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
+
+
+def _kind_for(suffix: str) -> str | None:
+    s = suffix.lower()
+    if s in _NUMERIC_EXT:
+        return "features"
+    if s in _IMAGE_EXT:
+        return "image"
+    if s in _VIDEO_EXT:
+        return "video"
+    return None
 
 
 def _json_safe(obj):
@@ -63,15 +81,14 @@ class DomainService:
             # instead of silently training on synthetic demo data.
             items = []
         else:
-            # synthetic demo items (class-pure replicate clusters)
-            rng = np.random.default_rng(0)
-            classes = meta.classes or list(_CLASS_PEAKS.keys())
-            for ci, cls in enumerate(classes):
+            # synthetic demo items — generic, class-separable feature clouds (no
+            # domain-specific assumptions). Real data comes from configured folders.
+            classes = meta.classes or _GENERIC_CLASSES
+            for cls in classes:
                 for s in range(n_per_class):
-                    peaks = _CLASS_PEAKS.get(cls, _CLASS_PEAKS["negative"])
-                    pts = np.array([_spectrum(peaks, 128, rng) for _ in range(replicates)])
+                    pts = synthetic_class_cloud(cls, n_dims=128, n_samples=replicates)
                     items.append({"id": f"{cls}_sample{s}", "label": cls, "points": pts,
-                                  "kind": "spectra"})
+                                  "kind": "features"})
         self._queues[did] = items
         self._index[did] = 0
         return items
@@ -109,12 +126,14 @@ class DomainService:
             for p in sorted(Path(root).rglob("*")):
                 if not p.is_file():
                     continue
-                if p.suffix.lower() in (".npy", ".csv", ".txt", ".asc", ".spc"):
-                    pts = self._load_points(p, replicates=replicates)
-                    if pts is None:
-                        continue
-                    items.append({"id": f"{p.parent.name}/{p.name}", "label": p.parent.name,
-                                  "points": pts, "kind": "spectra", "path": str(p)})
+                kind = _kind_for(p.suffix)
+                if kind is None:
+                    continue
+                pts = self._load_points(p, replicates=replicates)
+                if pts is None:
+                    continue
+                items.append({"id": f"{p.parent.name}/{p.name}", "label": p.parent.name,
+                              "points": pts, "kind": kind, "path": str(p)})
         return items
 
     def _items_from_subset(self, subset, replicates):
@@ -125,43 +144,62 @@ class DomainService:
             if pts is not None:
                 items.append({"id": entry.get("name", p.name),
                               "label": entry.get("label") or p.parent.name,
-                              "points": pts, "kind": "spectra", "path": str(p)})
+                              "points": pts, "kind": _kind_for(p.suffix) or "features",
+                              "path": str(p)})
         return items
 
     def _load_points(self, p: Path, n_bands: int = 128, replicates: int = 16):
-        """Load one spectrum file -> (replicates, n_bands) cloud.
+        """Load ONE data file -> (replicates, n_bands) feature cloud, domain-agnostically.
 
-        Parses messy Raman exports: keeps the trailing two NUMERIC columns as
-        (raman_shift, intensity), resamples intensity onto a fixed n_bands grid, and
-        L2-normalises (matching the encoder corpus). A small measurement-noise jitter
-        builds a non-degenerate replicate cloud so topology/graph encoders have content.
+        Handles numeric tables/arrays (.npy/.npz/.csv/.txt/.asc/.spc/.dat/.tsv) and,
+        best-effort, images/video when an optional decoder (PIL / imageio) is installed.
+        Every input is reduced to a fixed-length feature vector, L2-normalised to match
+        the encoder corpus, then jittered into a small replicate cloud so the topology /
+        graph encoders have non-degenerate content. Returns None if unreadable.
         """
         try:
-            if p.suffix.lower() == ".npy":
-                arr = np.asarray(np.load(p), dtype=float)
-                vec = arr.mean(axis=0) if arr.ndim == 2 else arr
+            suffix = p.suffix.lower()
+            if suffix in _IMAGE_EXT:
+                vec = self._image_to_vector(p, n_bands)
+            elif suffix in _VIDEO_EXT:
+                return self._video_to_cloud(p, n_bands, replicates)
+            elif suffix in (".npy", ".npz"):
+                arr = np.load(p)
+                if suffix == ".npz":
+                    arr = arr[arr.files[0]]
+                arr = np.asarray(arr, dtype=float)
+                vec = arr.mean(axis=0) if arr.ndim == 2 else arr.ravel()
             else:
-                shift, inten = [], []
+                # generic numeric text: take the value series (last numeric column, or the
+                # sole column) and resample onto a fixed grid. Works for x,y signal exports
+                # and single-column series alike — no instrument-specific assumptions.
+                xs, ys = [], []
                 for line in p.read_text(errors="ignore").splitlines():
-                    toks = line.replace(",", " ").split()
                     nums = []
-                    for t in toks:
+                    for t in line.replace(",", " ").split():
                         try:
                             nums.append(float(t))
                         except ValueError:
                             pass
                     if len(nums) >= 2:
-                        shift.append(nums[-2])
-                        inten.append(nums[-1])
-                if len(inten) < 4:
+                        xs.append(nums[-2])
+                        ys.append(nums[-1])
+                    elif len(nums) == 1:
+                        xs.append(float(len(xs)))
+                        ys.append(nums[0])
+                if len(ys) < 4:
                     return None
-                shift = np.asarray(shift)
-                inten = np.asarray(inten)
-                order = np.argsort(shift)
-                shift, inten = shift[order], inten[order]
-                grid = np.linspace(shift.min(), shift.max(), n_bands)
-                vec = np.interp(grid, shift, inten)
-            vec = np.asarray(vec, dtype=float)
+                xs, ys = np.asarray(xs), np.asarray(ys)
+                order = np.argsort(xs)
+                xs, ys = xs[order], ys[order]
+                vec = np.interp(np.linspace(xs.min(), xs.max(), n_bands), xs, ys)
+            if vec is None:
+                return None
+            vec = np.asarray(vec, dtype=float).ravel()
+            # fit every input to a common width so all items line up for the encoders
+            if vec.shape[0] != n_bands and vec.shape[0] > 1:
+                vec = np.interp(np.linspace(0, 1, n_bands),
+                                np.linspace(0, 1, vec.shape[0]), vec)
             nrm = np.linalg.norm(vec)
             if nrm > 0:
                 vec = vec / nrm
@@ -170,10 +208,47 @@ class DomainService:
         except Exception:
             return None
 
+    def _image_to_vector(self, p: Path, n_bands: int):
+        """Best-effort image -> fixed-length grayscale feature vector (optional decoder)."""
+        try:
+            try:
+                from PIL import Image
+                a = np.asarray(Image.open(p).convert("L"), dtype=float)
+            except Exception:
+                import imageio.v3 as iio
+                a = np.asarray(iio.imread(p), dtype=float)
+                if a.ndim == 3:
+                    a = a.mean(axis=2)
+            flat = a.ravel()
+            if flat.size == 0:
+                return None
+            return np.interp(np.linspace(0, 1, n_bands), np.linspace(0, 1, flat.size), flat)
+        except Exception:
+            return None
+
+    def _video_to_cloud(self, p: Path, n_bands: int, replicates: int):
+        """Best-effort video -> per-frame feature cloud (optional decoder). None if absent."""
+        try:
+            import imageio.v3 as iio
+            frames = np.asarray(iio.imread(p, index=None), dtype=float)
+            if frames.ndim == 4:
+                frames = frames.mean(axis=3)
+            n = frames.shape[0]
+            idx = np.linspace(0, n - 1, min(replicates, n)).astype(int)
+            rows = [np.interp(np.linspace(0, 1, n_bands),
+                              np.linspace(0, 1, frames[i].size), frames[i].ravel())
+                    for i in idx]
+            cloud = np.asarray(rows, dtype=float)
+            norms = np.linalg.norm(cloud, axis=1, keepdims=True)
+            return cloud / np.where(norms > 0, norms, 1.0)
+        except Exception:
+            return None
+
     def _item_world(self, did: str, item: dict) -> WorldGraph:
         pts = np.asarray(item["points"], dtype=float)
-        meta = self.dm.get(did)
-        if meta.adapter_type == "raman" or pts.shape[1] >= 8:
+        # Domain-agnostic graph build: high-dimensional feature vectors -> cosine-similarity
+        # kNN; low-dimensional spatial point sets -> Euclidean kNN. No adapter-type coupling.
+        if pts.shape[1] >= 8:
             A = cosine_knn_graph(pts, k=min(6, max(1, pts.shape[0] - 1)))
         else:
             A = knn_graph_from_points(pts, k=min(6, max(1, pts.shape[0] - 1)))
@@ -296,20 +371,55 @@ class DomainService:
                     continue
                 ff = eng.c.functional_fields[0]
                 ff.learn_affordance(label, act, True, source="llm", world_ctx=ctx.id)
+            # Mirror the learned values/affordances into the memory graph as
+            # (:Object)-[:HAS_VALUE]->(:Objective) / (:Object)-[:AFFORDS]->(:Action)
+            # so they exist in the graph DB and render in the World Graph. Best-effort:
+            # the in-process ValueStore/FunctionalStore remain the source of truth. (V4 fix ❷)
+            try:
+                g = eng.c.store.graph
+                for ok in eng.c.objective_fields:
+                    vrec = eng.value_store.get(label, ok)
+                    if vrec is not None:
+                        g.upsert_value(label, ok, vrec.value, vrec.source, vrec.version, ctx.id)
+                for arec in eng.func_store.all():
+                    if arec.object_class == label and arec.enabled:
+                        g.upsert_affordance(label, arec.dim, arec.action, arec.source,
+                                            arec.version, ctx.id)
+            except Exception:
+                pass
             cand = MemoryItem(id=new_memory_id(tr.phi, idx, ctx.id), phi=tr.phi, h=sr.h,
                               g=gr.graph_emb, cls=label, tau=idx, world_ctx_id=ctx.id,
                               snapshot_id=snap.id, diagram_path=tr.artifact_path,
                               spectra_path=sr.artifact_path)
             dec = eng.c.curator.on_candidate(cand, t=idx, goal_gain=1.0)
             eng.register_object(label, tr.phi, sr.h, gr.graph_emb, idx, ctx.id)
+            # Active training agents: LLM-proposed extra agents (reasoner-driven) + the
+            # modality-routed learner (diffusion for image/video, RL bandit for text).
+            from malar.training.extra_agents import process_training_item
+            agents_out = process_training_item(eng, self.dm.get(did), item, tr.summary,
+                                               gr.graph_emb, label, ctx.id, self.llm)
+            # Parent field-agents run their VALIDATED factory-agents (gated per domain);
+            # outputs feed back into the fields and are stored in the graph DB.
+            factory_out = []
+            if getattr(self.dm.get(did), "agents_active", False):
+                try:
+                    from malar.agents.runner import run_validated_agents
+                    agent_ctx = {"features": [list(map(float, r)) for r in world.features[:12]],
+                                 "label": label, "summary": tr.summary}
+                    factory_out = run_validated_agents(eng, agent_ctx, did, ctx.id, label)
+                except Exception:
+                    factory_out = []
             self._last_debug[did] = {
                 "stage": "confirm", "item_id": item["id"], "label": label,
                 "curator_action": dec.action, "curator_mem_id": dec.mem_id,
                 "novelty": {k: (round(float(v), 4) if isinstance(v, (int, float)) else v)
                             for k, v in dec.novelty.items()},
-                "world_ctx": ctx.id, "snapshot": snap.id, "provenance": result.get("provenance")}
+                "world_ctx": ctx.id, "snapshot": snap.id, "provenance": result.get("provenance"),
+                "training_agents": agents_out, "factory_agents": factory_out}
             result.update({"committed": True, "label": label, "memory_action": dec.action,
-                           "provenance": "human" if src_human else "data"})
+                           "provenance": "human" if src_human else "data",
+                           "modality": agents_out.get("modality"),
+                           "training_agents": agents_out, "factory_agents": factory_out})
         self._index[did] = idx + 1
         result["next_index"] = self._index[did]
         result["remaining"] = max(0, len(q) - self._index[did])
@@ -355,15 +465,28 @@ class DomainService:
         for ctx_id, ctx in getattr(g, "contexts", {}).items():
             nodes.append({"id": ctx_id, "type": "world_context", "label": ctx.get("source")})
             seen.add(ctx_id)
-        for rel, src, dst, _ in getattr(g, "edges", []):
+        # grounded knowledge nodes (V4 fix ❷): object-class / objective / action, so the
+        # HAS_VALUE / AFFORDS edges below have endpoints to render against.
+        for oid, o in getattr(g, "objects", {}).items():
+            nodes.append({"id": oid, "type": "object_class", "label": o.get("class")})
+            seen.add(oid)
+        for kid, k in getattr(g, "objectives", {}).items():
+            nodes.append({"id": kid, "type": "objective", "label": k.get("key")})
+            seen.add(kid)
+        for aid, a in getattr(g, "actions", {}).items():
+            nodes.append({"id": aid, "type": "action", "label": a.get("action")})
+            seen.add(aid)
+        for rel, src, dst, props in getattr(g, "edges", []):
             if src in seen and dst in seen:
                 if filter_type and rel != filter_type:
                     continue
-                edges.append({"source": src, "target": dst, "rel": rel})
-        if filter_type in (None, "object"):
-            pass
+                edge = {"source": src, "target": dst, "rel": rel}
+                if rel == "HAS_VALUE" and props:
+                    edge["value"] = props.get("value")
+                edges.append(edge)
         return {"nodes": nodes[:limit], "edges": edges[: limit * 3],
-                "rel_types": ["SIMILAR", "DERIVED_FROM", "TEMPORAL_NEXT", "GROUNDED_IN", "OF"]}
+                "rel_types": ["SIMILAR", "DERIVED_FROM", "TEMPORAL_NEXT", "GROUNDED_IN",
+                              "OF", "HAS_VALUE", "AFFORDS"]}
 
     def node_detail(self, did: str, nid: str) -> dict:
         eng = self.dm.engine(did, llm_client=self.llm)
@@ -412,7 +535,8 @@ class DomainService:
         rows = []
         report = analyze_folder(path) if (path and path.strip()) else None
         for it in (report.items if report else []):
-            if it.kind not in ("spectra", "cube"):
+            if it.kind not in ("features", "vector", "array", "image", "video",
+                               "spectra", "cube"):   # spectra/cube kept for legacy reports
                 continue
             pts = self._load_points(Path(it.path))
             if pts is None:
@@ -422,11 +546,9 @@ class DomainService:
                          "identified_object": (res.get("matched_objects") or [{}])[0].get("class"),
                          "action": res.get("action"), "confidence": res.get("confidence"),
                          "ood": res.get("ood")})
-        if not rows:  # demo fallback: synthesize a small test set from classes
-            rng = np.random.default_rng(1)
-            for cls in (self.dm.get(did).classes or list(_CLASS_PEAKS.keys())):
-                pts = np.array([_spectrum(_CLASS_PEAKS.get(cls, _CLASS_PEAKS["negative"]), 128, rng)
-                                for _ in range(16)])
+        if not rows:  # demo fallback: synthesize a small generic test set from the classes
+            for cls in (self.dm.get(did).classes or _GENERIC_CLASSES):
+                pts = synthetic_class_cloud(cls, n_dims=128, n_samples=16)
                 res = svc.infer(image=pts)
                 rows.append({"input_id": f"synthetic_{cls}", "label_hint": cls,
                              "identified_object": (res.get("matched_objects") or [{}])[0].get("class"),
@@ -485,11 +607,11 @@ class DomainService:
         q = self._queues.get(did) or self.build_queue(did)
         items = [{"index": i, "item_id": it["id"], "label": it["label"],
                   "shape": list(np.asarray(it["points"]).shape),
-                  "path": it.get("path"), "kind": it.get("kind", "spectra")}
+                  "path": it.get("path"), "kind": it.get("kind", "features")}
                  for i, it in enumerate(q)]
         src = self._queue_source.get(did, "synthetic")
         note = {"folder": "loaded from configured data folder(s)",
-                "folder_empty": "a folder is configured but no readable spectra were found "
+                "folder_empty": "a folder is configured but no readable data files were found "
                                 "(check the path resolves inside the server, e.g. /app/<name>)",
                 "synthetic": "no data folder configured — using built-in synthetic demo data"}.get(src, "")
         return {"items": items, "total": len(items), "source": src, "note": note}
@@ -545,7 +667,7 @@ class DomainService:
 
         return _json_safe({
             "file": {"item_id": item["id"], "label": item["label"], "path": item.get("path"),
-                     "kind": item.get("kind", "spectra"), "shape": list(pts.shape),
+                     "kind": item.get("kind", "features"), "shape": list(pts.shape),
                      "dtype": str(pts.dtype), "n_rows": int(pts.shape[0]),
                      "n_cols": int(pts.shape[1])},
             "raw": {"matrix": matrix, "rows_shown": len(matrix), "cols_shown": len(matrix[0]) if matrix else 0,

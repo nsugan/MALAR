@@ -22,19 +22,23 @@ from malar.core.config import get_settings
 from malar.core.loop import MalarEngine
 from malar.fields.functional_field import FunctionalSpec
 from malar.fields.objectives import ObjectiveSpec
-from malar.world.adapters.raman import RamanAdapter
-from malar.world.adapters.sensor import SensorTimeseriesAdapter
 from malar.world.adapters.synthetic import SyntheticAdapter
 
+# Generic default objectives/actions. A domain describes what its data actually is in
+# the Configure tab (free text) and via its objectives/functional dims; the engine is
+# domain-agnostic. The legacy raman/sensor presets are kept only so pre-existing domains
+# that already declared those adapter types keep working (see _make_adapter).
+_GENERIC_OBJECTIVES = [("quality", 0.8), ("confidence", 0.8)]
+_GENERIC_ACTIONS = ["flag", "watchlist", "escalate"]
 _DEFAULT_OBJECTIVES = {
-    "raman": [("sensitivity", 0.9), ("specificity", 0.9)],
-    "sensor": [("yield", 0.9), ("defect_rate", 0.05)],
-    "synthetic": [("quality", 0.8)],
+    "synthetic": _GENERIC_OBJECTIVES,
+    "raman": [("sensitivity", 0.9), ("specificity", 0.9)],       # legacy
+    "sensor": [("yield", 0.9), ("defect_rate", 0.05)],           # legacy
 }
 _DEFAULT_ACTIONS = {
-    "raman": ["confirm_rtpcr", "escalate", "watchlist"],
-    "sensor": ["adjust_feed_rate", "re_tool", "hold_lot", "flag"],
-    "synthetic": ["flag", "watchlist"],
+    "synthetic": _GENERIC_ACTIONS,
+    "raman": ["confirm", "escalate", "watchlist"],               # legacy
+    "sensor": ["adjust", "hold", "flag"],                        # legacy
 }
 
 
@@ -43,7 +47,7 @@ class DomainMeta:
     id: str
     name: str
     description: str = ""
-    adapter_type: str = "raman"            # raman | sensor | synthetic
+    adapter_type: str = "synthetic"        # synthetic (default) | raman/sensor (legacy)
     data_folders: list[str] = field(default_factory=list)
     data_description: str = ""
     objectives: list[dict] = field(default_factory=list)   # [{key,target}]
@@ -53,6 +57,7 @@ class DomainMeta:
     plan: dict = field(default_factory=dict)            # LLM-derived learning plan
     extra_agents: list = field(default_factory=list)    # LLM-proposed process agents
     llm_assist: bool = False                            # call LLM per item during training
+    agents_active: bool = False                         # run validated factory-agents in-loop
     created: float = field(default_factory=time.time)
     last_activity: float = field(default_factory=time.time)
 
@@ -99,12 +104,17 @@ class DomainManager:
             self.active_id = next(iter(self.metas), None)
 
     def _save(self) -> None:
-        self.registry_path.write_text(json.dumps(
+        # Atomic write (temp file + rename) so an interrupted/concurrent write can never
+        # leave a half-written or double-appended registry.json (which would drop domains).
+        payload = json.dumps(
             {"active_id": self.active_id,
-             "domains": [asdict(m) for m in self.metas.values()]}, indent=2))
+             "domains": [asdict(m) for m in self.metas.values()]}, indent=2)
+        tmp = self.registry_path.with_suffix(".json.tmp")
+        tmp.write_text(payload)
+        tmp.replace(self.registry_path)
 
     # -- CRUD ----------------------------------------------------------
-    def create(self, name: str, description: str = "", adapter_type: str = "raman",
+    def create(self, name: str, description: str = "", adapter_type: str = "synthetic",
                classes: list[str] | None = None) -> DomainMeta:
         did = _slug(name)
         base = did
@@ -112,10 +122,11 @@ class DomainManager:
         while did in self.metas:
             did = f"{base}_{i}"
             i += 1
-        objs = [{"key": k, "target": t} for k, t in _DEFAULT_OBJECTIVES.get(adapter_type, [("quality", 0.8)])]
-        funcs = [{"dim": "response", "actions": _DEFAULT_ACTIONS.get(adapter_type, ["flag"])}]
-        if adapter_type == "raman" and not classes:
-            classes = ["sars_cov_2", "influenza_a", "rsv", "negative"]
+        objs = [{"key": k, "target": t}
+                for k, t in _DEFAULT_OBJECTIVES.get(adapter_type, _GENERIC_OBJECTIVES)]
+        funcs = [{"dim": "response",
+                  "actions": _DEFAULT_ACTIONS.get(adapter_type, _GENERIC_ACTIONS)}]
+        # Classes are generic and come from the data/description; none are hardcoded.
         meta = DomainMeta(id=did, name=name, description=description, adapter_type=adapter_type,
                           objectives=objs, functionals=funcs, classes=classes or [],
                           coverage_targets={"novelty_rate_below": 0.1,
@@ -149,37 +160,82 @@ class DomainManager:
         self._save()
         return self.metas[did]
 
-    def reset(self, did: str) -> None:
-        """Wipe a domain's memory + artifacts, keep its config."""
+    def _purge_memory(self, did: str) -> dict:
+        """Delete a domain's learned memory from Qdrant (mem__{did}) AND Neo4j."""
+        out = {"qdrant": False, "neo4j": 0}
+        eng = self._engines.get(did)
+        # Qdrant: drop the per-domain collection (use the live client if loaded, else connect)
+        try:
+            if eng is not None:
+                eng.c.store.qdrant.client.delete_collection(f"mem__{did}")
+            else:
+                from malar.memory.qdrant_io import QdrantMemory
+                url = self.s.qdrant_url
+                QdrantMemory(url=url, collection=f"mem__{did}").client.delete_collection(f"mem__{did}")
+            out["qdrant"] = True
+        except Exception:
+            pass
+        # Neo4j: delete every Memory node grounded to this domain
+        try:
+            from malar.memory.neo4j_io import make_memory_graph
+            g = eng.c.store.graph if eng is not None else make_memory_graph(domain_id=did)
+            if hasattr(g, "wipe_domain"):
+                out["neo4j"] = g.wipe_domain()
+        except Exception:
+            pass
+        # also drop the persisted prototype state so nothing reloads
+        try:
+            (self.root / did / "state.json").unlink()
+        except Exception:
+            pass
+        return out
+
+    def reset(self, did: str, purge_memory: bool = True) -> dict:
+        """Wipe a domain's artifacts; with purge_memory also wipe Qdrant + Neo4j. Keeps config."""
         if did not in self.metas:
             raise KeyError(did)
-        eng = self._engines.pop(did, None)
-        if eng is not None:
-            try:
-                eng.c.store.qdrant.client.delete_collection(f"mem__{did}")
-            except Exception:
-                pass
+        self._engines.pop(did, None)
+        purged = self._purge_memory(did) if purge_memory else {"qdrant": False, "neo4j": 0}
         for sub in ("artifacts", "snapshots", "results"):
             d = self.root / did / sub
             if d.exists():
                 shutil.rmtree(d, ignore_errors=True)
             d.mkdir(parents=True, exist_ok=True)
         self._save()
+        return {"reset": did, "purged": purged}
 
-    def delete(self, did: str) -> None:
+    def delete(self, did: str, purge_memory: bool = True) -> dict:
+        purged = self._purge_memory(did) if purge_memory else {"qdrant": False, "neo4j": 0}
         self._engines.pop(did, None)
         self.metas.pop(did, None)
         shutil.rmtree(self.root / did, ignore_errors=True)
         if self.active_id == did:
             self.active_id = next(iter(self.metas), None)
         self._save()
+        return {"deleted": did, "purged": purged}
+
+    def wipe_all_memory(self) -> dict:
+        """Full fresh start: drop every domain's Qdrant collection and clear all of Neo4j."""
+        out = {"domains": [], "neo4j": 0}
+        for did in list(self.metas.keys()):
+            p = self._purge_memory(did)
+            out["domains"].append({"id": did, **p})
+        self._engines.clear()
+        try:
+            from malar.memory.neo4j_io import make_memory_graph
+            g = make_memory_graph(domain_id="default")
+            if hasattr(g, "wipe_all"):
+                out["neo4j"] = g.wipe_all()
+        except Exception:
+            pass
+        return out
 
     # -- config --------------------------------------------------------
     def update_config(self, did: str, **kw) -> DomainMeta:
         meta = self.metas[did]
         for k in ("data_folders", "data_description", "objectives", "functionals",
                   "coverage_targets", "classes", "adapter_type", "description",
-                  "plan", "extra_agents", "llm_assist"):
+                  "plan", "extra_agents", "llm_assist", "agents_active"):
             if k in kw and kw[k] is not None:
                 setattr(meta, k, kw[k])
         meta.last_activity = time.time()
@@ -221,10 +277,15 @@ class DomainManager:
 
     # -- engine --------------------------------------------------------
     def _make_adapter(self, meta: DomainMeta):
+        # Default: the domain-agnostic synthetic adapter. The legacy raman/sensor adapters
+        # are lazy-imported ONLY for pre-existing domains that declared them, so the module
+        # no longer hard-depends on the domain-specific code. (V4 genericization)
         if meta.adapter_type == "raman":
+            from malar.world.adapters.raman import RamanAdapter
             return RamanAdapter(n_ticks=24, n_per_class=12, n_bands=128, k=6,
                                 classes=meta.classes or None)
         if meta.adapter_type == "sensor":
+            from malar.world.adapters.sensor import SensorTimeseriesAdapter
             return SensorTimeseriesAdapter(n_sensors=24, n_ticks=18, k=4)
         return SyntheticAdapter(n_ticks=18, points_per_tick=40, k=6)
 

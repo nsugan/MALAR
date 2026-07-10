@@ -17,7 +17,6 @@ from malar.core.state import MALARState
 from malar.fields.functional_field import FunctionalSpec
 from malar.fields.objectives import ObjectiveSpec
 from malar.generation.generate import ReverseGenerator
-from malar.world.adapters.raman import RamanAdapter
 from malar.world.adapters.synthetic import SyntheticAdapter
 
 
@@ -56,11 +55,15 @@ class EngineSession:
     # -- lifecycle -----------------------------------------------------
     def configure(self, domain: str = "synthetic", review_mode: bool = True,
                   budget: int = 64) -> dict:
+        # Legacy single-session path. Default is the generic synthetic adapter; the raman
+        # adapter is lazy-imported only if a caller explicitly asks for a "raman*" domain
+        # (backward compat), so this module no longer hard-depends on domain-specific code.
         if domain.startswith("raman"):
+            from malar.world.adapters.raman import RamanAdapter
             self.adapter = RamanAdapter(n_ticks=18, n_per_class=8, n_bands=128, k=6)
             objectives = [ObjectiveSpec(key="sensitivity"), ObjectiveSpec(key="specificity")]
             functionals = [FunctionalSpec(dim="response",
-                                          actions=["confirm_rtpcr", "escalate", "watchlist"])]
+                                          actions=["confirm", "escalate", "watchlist"])]
             world_id = "raman_virus"
         else:
             self.adapter = SyntheticAdapter(n_ticks=12, points_per_tick=40, k=6)

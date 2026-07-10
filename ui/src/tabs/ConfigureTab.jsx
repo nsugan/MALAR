@@ -45,7 +45,7 @@ export default function ConfigureTab() {
       <Card title="Training data" right={saved && <Chip color="green">saved</Chip>}>
         <label className="text-xs text-slate-500">Data folders (server-visible paths)</label>
         <div className="mt-1 flex gap-2">
-          <input value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="/app/Raman_Virus"
+          <input value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="/app/data/<your-folder>"
             className="flex-1 px-2 py-1.5 text-sm" />
           <Button variant="ghost" onClick={addFolder}>Add</Button>
         </div>
@@ -59,9 +59,11 @@ export default function ConfigureTab() {
           {(!cfg.data_folders || cfg.data_folders.length === 0) &&
             <p className="text-[11px] text-slate-500">None — training will use built-in synthetic data.</p>}
         </div>
-        <label className="mt-3 block text-xs text-slate-500">Data description (LLM context)</label>
+        <label className="mt-3 block text-xs text-slate-500">Data description — what the data is, its
+          classes/labels, format and source (this is where the domain details live; used as LLM context)</label>
         <textarea value={cfg.data_description || ""} onChange={(e) => setCfg({ ...cfg, data_description: e.target.value })}
-          className="mt-1 h-24 w-full px-2 py-1.5 text-sm" />
+          placeholder="e.g. CSV feature vectors per sample, folder-per-class; 3 classes; from …"
+          className="mt-1 h-28 w-full px-2 py-1.5 text-sm" />
         <div className="mt-2 flex items-center gap-2">
           <Button onClick={save}>Save config</Button>
           <label className="flex items-center gap-2 text-xs text-slate-600">

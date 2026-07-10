@@ -1,8 +1,9 @@
 """Inference service — acting on unknown inputs (read-mostly), behind a hard OOD gate.
 
 Pipeline:
-  1. front-end maps image/video/text -> phi/h/graph + world_emb.
-  2. identify against learned objects (retrieval + conformal), validity-gated via world_emb.
+  1. front-end maps image/video/text -> phi/h/graph (+ world_emb, reserved).
+  2. identify against learned objects (retrieval + conformal), validity-gated via the
+     region graph embedding fe.g against trained object contexts (o.g). (V4 fix ❶)
   3. look up the object's R (and diffused V) and affordances F.
   4. Policy selects from the F-afforded set ranked by R/V -> action + rationale +
      matched objects/contexts + confidence.

@@ -88,6 +88,26 @@ class QdrantMemory:
             out[name] = [(p.payload.get("neo4j_id"), float(p.score), p.payload) for p in res]
         return out
 
+    def fetch(self, mem_id: str) -> dict | None:
+        """Read one stored point back by memory id as {phi, hyper, graph_emb, payload}.
+
+        Qdrant is otherwise write/query-only for the store layer; this gives a
+        full-fidelity read path so the Curator can hydrate the in-process vector cache
+        after a restart instead of losing merges/reinforcements. (V4 fix ❸)
+        """
+        self.ensure_collection()
+        try:
+            recs = self.client.retrieve(self._physical, ids=[_point_uuid(mem_id)],
+                                        with_vectors=True, with_payload=True)
+        except Exception:
+            return None
+        if not recs:
+            return None
+        r = recs[0]
+        vec = r.vector or {}
+        return {"phi": vec.get("phi"), "hyper": vec.get("hyper"),
+                "graph_emb": vec.get("graph_emb"), "payload": r.payload or {}}
+
     def delete(self, mem_id: str) -> None:
         from qdrant_client import models
 

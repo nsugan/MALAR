@@ -89,11 +89,11 @@ export default function InferencePredictionTab() {
           <div>
             <label className="text-xs text-slate-500">Query text</label>
             <textarea value={text} onChange={(e) => setText(e.target.value)}
-              placeholder="e.g. possible coronavirus signature in sample 3"
+              placeholder="e.g. describe the input, referencing a known class"
               className="mt-1 h-20 w-full rounded bg-white px-2 py-1.5 text-sm" />
-            <label className="mt-2 block text-xs text-slate-500">…or a server-visible spectra file</label>
+            <label className="mt-2 block text-xs text-slate-500">…or a server-visible data file</label>
             <input value={file} onChange={(e) => setFile(e.target.value)}
-              placeholder="/app/Raman_Virus/RSV/sample_01.txt"
+              placeholder="/app/data/<folder>/<class>/sample_01.csv"
               className="mt-1 w-full rounded bg-white px-2 py-1.5 text-sm" />
           </div>
           <div className="space-y-2">
