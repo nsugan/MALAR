@@ -24,6 +24,7 @@ class GenerateCmd(BaseModel):
     name: str
     role: str
     context: str = ""
+    domain: str | None = None
 
 
 class ValidateCmd(BaseModel):
@@ -76,12 +77,16 @@ def _sample_ctx(did: str | None) -> dict | None:
 
 @router.post("/agents/generate")
 def generate(cmd: GenerateCmd):
-    return get_agent_factory().get_or_generate(cmd.name, cmd.role, cmd.context)
+    return get_agent_factory().get_or_generate(cmd.name, cmd.role, cmd.context,
+                                               domain_id=cmd.domain)
 
 
 @router.get("/agents")
-def list_agents():
-    return {"agents": get_agent_memory().all(with_code=False)}
+def list_agents(domain: str = "", cross: bool = False):
+    """List agents for `domain` (each domain owns its own). With cross=1, also include
+    other domains' VALIDATED agents (flagged cross_domain) for cross-domain inference."""
+    return {"agents": get_agent_memory().all(domain_id=(domain or None), with_code=False,
+                                             include_cross_domain=cross)}
 
 
 @router.get("/agents/{aid}")
@@ -189,13 +194,14 @@ def generate_selected(did: str, cmd: SelectedCmd):
     sample = _sample_ctx(did)
     fac = get_agent_factory()
     out = [fac.get_or_generate(name=a.get("name", "agent"), role=a.get("role", ""),
-                               context=ctx, sample_ctx=sample)
+                               context=ctx, sample_ctx=sample, domain_id=did)
            for a in (cmd.agents or [])]
     return {"domain": did, "results": out}
 
 
 class ActivateCmd(BaseModel):
     only_validated: bool = True
+    cross_domain: bool = False    # also run OTHER domains' validated agents (opt-in)
 
 
 def _parent_of(name: str, role: str) -> str:
@@ -228,13 +234,16 @@ def activate_agents(did: str, cmd: ActivateCmd):
     sample = _sample_ctx(did) or {"features": [], "label": None, "summary": {}}
     graph = eng.c.store.graph
     results = []
-    for a in mem.all(with_code=True):
+    # This domain's agents, plus (opt-in) other domains' validated agents flagged
+    # cross_domain — the orchestrator uses these together for cross-domain inference.
+    for a in mem.all(domain_id=did, with_code=True, include_cross_domain=cmd.cross_domain):
         if cmd.only_validated and not a["validated"]:
             continue
         run = fac.run(a["id"], sample, allow_unvalidated=not cmd.only_validated)
         parent = _parent_of(a["name"], a["role"])
         rec = {"id": "aout_" + uuid.uuid4().hex[:12], "agent_id": a["id"],
                "agent_name": a["name"], "parent": parent, "domain_id": did,
+               "agent_domain": a.get("domain_id"), "cross_domain": bool(a.get("cross_domain")),
                "cls": sample.get("label"),
                "output": run.get("output") if run.get("ok") else None,
                "ok": bool(run.get("ok")), "error": run.get("error") or run.get("reason"),
@@ -244,6 +253,8 @@ def activate_agents(did: str, cmd: ActivateCmd):
         except Exception:
             pass
         results.append({"agent": a["name"], "parent": parent, "ok": rec["ok"],
+                        "agent_domain": a.get("domain_id"),
+                        "cross_domain": bool(a.get("cross_domain")),
                         "output": run.get("output"), "error": rec["error"]})
     return {"domain": did, "activated": len(results),
             "stored_in": getattr(graph, "backend", "?"), "results": results}
@@ -284,6 +295,7 @@ def use_agents(did: str, cmd: UseAgentsCmd):
 def agents_status(did: str):
     from malar.domains.manager import get_manager
     m = get_manager().get(did)
-    validated = len([a for a in get_agent_memory().all(with_code=False) if a["validated"]])
+    validated = len([a for a in get_agent_memory().all(domain_id=did, with_code=False)
+                     if a["validated"]])
     return {"domain": did, "agents_active": bool(getattr(m, "agents_active", False)),
             "validated_agents": validated}

@@ -83,10 +83,11 @@ class AgentMemory:
                     id TEXT PRIMARY KEY, name TEXT, role TEXT, algorithm TEXT, code TEXT,
                     embedding TEXT, validated INTEGER DEFAULT 0, usage_count INTEGER DEFAULT 0,
                     provider_algo TEXT, provider_code TEXT, created REAL, note TEXT, trace TEXT,
-                    last_input TEXT, last_output TEXT, last_run REAL)""")
+                    last_input TEXT, last_output TEXT, last_run REAL, domain_id TEXT)""")
             # migrate older DBs that predate newer columns
             for col, decl in (("trace", "TEXT"), ("last_input", "TEXT"),
-                              ("last_output", "TEXT"), ("last_run", "REAL")):
+                              ("last_output", "TEXT"), ("last_run", "REAL"),
+                              ("domain_id", "TEXT")):
                 try:
                     c.execute(f"ALTER TABLE agents ADD COLUMN {col} {decl}")
                 except sqlite3.OperationalError:
@@ -94,16 +95,16 @@ class AgentMemory:
 
     def add(self, name: str, role: str, algorithm: str, code: str,
             provider_algo: str = "", provider_code: str = "", note: str = "",
-            trace: str = "") -> str:
+            trace: str = "", domain_id: str | None = None) -> str:
         aid = "agent_" + uuid.uuid4().hex[:12]
         emb = embed_text(f"{name} {role}")
         with self._conn() as c:
             c.execute(
                 """INSERT INTO agents(id,name,role,algorithm,code,embedding,validated,
-                   usage_count,provider_algo,provider_code,created,note,trace)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   usage_count,provider_algo,provider_code,created,note,trace,domain_id)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (aid, name, role, algorithm, code, json.dumps(emb.tolist()), 0, 0,
-                 provider_algo, provider_code, time.time(), note, trace))
+                 provider_algo, provider_code, time.time(), note, trace, domain_id))
         return aid
 
     def get(self, aid: str) -> dict | None:
@@ -111,18 +112,37 @@ class AgentMemory:
             r = c.execute("SELECT * FROM agents WHERE id=?", (aid,)).fetchone()
         return dict(r) if r else None
 
-    def all(self, with_code: bool = True) -> list[dict]:
+    def all(self, domain_id: str | None = None, with_code: bool = True,
+            include_cross_domain: bool = False) -> list[dict]:
+        """Agents for `domain_id` (each domain owns its agents — isolation).
+
+        * domain_id=None → every agent (unscoped / admin view).
+        * domain_id set → only that domain's agents. If include_cross_domain, ALSO
+          return other domains' VALIDATED agents, each flagged `cross_domain=True` — the
+          opt-in path the orchestrator uses for complex cross-domain inference.
+        """
         with self._conn() as c:
             rows = [dict(r) for r in c.execute("SELECT * FROM agents ORDER BY created DESC")]
+        out = []
         for r in rows:
             r["embedding"] = None
+            own = (domain_id is None) or (r.get("domain_id") == domain_id)
+            if not own:
+                # foreign-domain agent: only surfaced when cross-domain is opted in, and
+                # only if it is validated (never run another domain's unreviewed code).
+                if not (include_cross_domain and r.get("validated") and r.get("domain_id")):
+                    continue
+                r["cross_domain"] = True
+            else:
+                r["cross_domain"] = False
             if not with_code:
                 r.pop("code", None)
                 r.pop("algorithm", None)
                 r.pop("trace", None)
                 r.pop("last_input", None)     # kept light for the list view
                 r.pop("last_output", None)
-        return rows
+            out.append(r)
+        return out
 
     def record_io(self, aid: str, input_obj, output_obj) -> None:
         """Persist the LAST input this agent ran on and the output it produced, so the
@@ -165,13 +185,17 @@ class AgentMemory:
             return cur.rowcount > 0
 
     def find_similar(self, role: str, name: str = "", threshold: float = 0.82,
-                     only_validated: bool = True) -> dict | None:
+                     only_validated: bool = True, domain_id: str | None = None) -> dict | None:
+        """Closest reusable agent. Scoped to `domain_id` when given, so a domain reuses
+        its OWN validated agents and never silently adopts another domain's."""
         q = embed_text(f"{name} {role}")
         best, best_s = None, threshold
         with self._conn() as c:
             rows = c.execute("SELECT * FROM agents").fetchall()
         for r in rows:
             if only_validated and not r["validated"]:
+                continue
+            if domain_id is not None and r["domain_id"] != domain_id:
                 continue
             try:
                 emb = np.array(json.loads(r["embedding"]), dtype=float)

@@ -83,9 +83,11 @@ class AgentFactory:
         return r.get("coder") or (getattr(s, "alias_coder", None) or "malar-claude")
 
     def get_or_generate(self, name: str, role: str, context: str = "",
-                        sample_ctx: dict | None = None, reuse_threshold: float = 0.82) -> dict:
+                        sample_ctx: dict | None = None, reuse_threshold: float = 0.82,
+                        domain_id: str | None = None) -> dict:
+        # Reuse is scoped to this domain — each domain owns its agents (isolation).
         existing = self.memory.find_similar(role, name, threshold=reuse_threshold,
-                                            only_validated=True)
+                                            only_validated=True, domain_id=domain_id)
         if existing:
             self.memory.bump_usage(existing["id"])
             return {"reused": True, "agent_id": existing["id"], "name": existing["name"],
@@ -121,7 +123,8 @@ class AgentFactory:
         test = run_agent_code(code, sample_ctx) if (report["ok"] and sample_ctx) else None
         aid = self.memory.add(name, role, algorithm, code,
                               provider_algo=algo_alias, provider_code=code_alias,
-                              note=self._note(report, test), trace=json.dumps(trace))
+                              note=self._note(report, test), trace=json.dumps(trace),
+                              domain_id=domain_id)
         if test is not None:
             self.memory.record_io(aid, sample_ctx, test)   # show the auto-test I/O
         return {"reused": False, "generated": True, "agent_id": aid, "name": name,

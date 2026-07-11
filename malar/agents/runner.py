@@ -74,7 +74,8 @@ def run_validated_agents(engine, ctx: dict, domain_id: str, world_ctx_id: str | 
     graph = getattr(graph, "graph", None)
     results = []
     try:
-        agents = mem.all(with_code=True)
+        # Only THIS domain's validated agents run in its training loop (isolation).
+        agents = mem.all(domain_id=domain_id, with_code=True)
     except Exception:
         return []
     for a in agents:

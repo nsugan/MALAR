@@ -87,11 +87,15 @@ export default function AgentFactoryTab() {
   const [msg, setMsg] = useState("");
   const [out, setOut] = useState(null);
   const [onlyVal, setOnlyVal] = useState(true);
+  const [crossDomain, setCrossDomain] = useState(false);
   const [activation, setActivation] = useState(null);
   const [useInLoop, setUseInLoop] = useState(false);
 
-  const refresh = async () => { try { setAgents((await api.listAgents()).agents || []); } catch (e) { setMsg(String(e)); } };
-  useEffect(() => { refresh(); }, []);
+  const refresh = async () => {
+    try { setAgents((await api.listAgents(activeId, crossDomain)).agents || []); }
+    catch (e) { setMsg(String(e)); }
+  };
+  useEffect(() => { refresh(); }, [activeId, crossDomain]);
   useEffect(() => { if (activeId) api.agentsStatus(activeId).then((r) => setUseInLoop(!!r.agents_active)).catch(() => {}); }, [activeId]);
 
   const toggleInLoop = async (v) => {
@@ -103,7 +107,7 @@ export default function AgentFactoryTab() {
   const activate = async () => {
     if (!activeId) { setMsg('select a domain first'); return; }
     setBusy(true); setMsg('running validated agents…');
-    try { const r = await api.activateAgents(activeId, onlyVal); setActivation(r);
+    try { const r = await api.activateAgents(activeId, onlyVal, crossDomain); setActivation(r);
       setMsg(`activated ${r.activated} agent(s) → stored in ${r.stored_in}`); }
     catch (e) { setMsg('activate failed: ' + e); }
     setBusy(false);
@@ -169,6 +173,8 @@ export default function AgentFactoryTab() {
   };
 
   const nChosen = proposals.filter((p) => chosen[p.name]).length;
+  // an agent owned by ANOTHER domain (shown via cross-domain) is read-only here
+  const foreign = !!(sel && sel.domain_id && activeId && sel.domain_id !== activeId);
 
   return (
     <div className="space-y-4">
@@ -207,9 +213,12 @@ export default function AgentFactoryTab() {
       </Card>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-        <Card title={`Stored agents (${agents.length})`} className="lg:col-span-2"
+        <Card title={`Agents in this domain (${agents.filter((a) => !a.cross_domain).length})`} className="lg:col-span-2"
           right={
             <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1 text-[11px] text-slate-600" title="Show other domains' VALIDATED agents too, so the orchestrator can use them together for cross-domain inference.">
+                <input type="checkbox" checked={crossDomain} onChange={(e) => setCrossDomain(e.target.checked)} /> cross-domain
+              </label>
               <label className="flex items-center gap-1 text-[11px] text-slate-600" title="Parent field-agents run their validated agents on every training item; outputs feed back into the fields and are stored in the DB.">
                 <input type="checkbox" checked={useInLoop} onChange={(e) => toggleInLoop(e.target.checked)} /> use in training
               </label>
@@ -228,6 +237,7 @@ export default function AgentFactoryTab() {
                 <div className="flex items-center justify-between">
                   <span className="font-medium text-slate-800">{a.name}</span>
                   <div className="flex items-center gap-1.5">
+                    {a.cross_domain && <Chip color="amber" title={`from domain ${a.domain_id}`}>⤳ {a.domain_id}</Chip>}
                     <Chip color={a.validated ? "green" : "amber"}>{a.validated ? "validated" : "pending"}</Chip>
                     <Chip>used {a.usage_count}</Chip>
                   </div>
@@ -257,13 +267,14 @@ export default function AgentFactoryTab() {
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                 <Chip color={sel.validated ? "green" : "amber"}>{sel.validated ? "validated" : "pending review"}</Chip>
+                {foreign && <Chip color="amber" title={`owned by domain ${sel.domain_id}`}>⤳ from {sel.domain_id} · read-only here</Chip>}
                 {sel.note && <Chip color={String(sel.note).includes("ERROR") || String(sel.note).startsWith("invalid") ? "red" : "green"}>{sel.note}</Chip>}
-                <Button disabled={busy} onClick={saveCode}>Save code</Button>
+                <Button disabled={busy || foreign} onClick={saveCode}>Save code</Button>
                 <Button variant="ghost" onClick={testReal}>Test on domain sample</Button>
                 {!sel.validated
-                  ? <Button variant="green" onClick={() => validate(true)}>✓ Validate</Button>
-                  : <Button variant="ghost" onClick={() => validate(false)}>Revoke</Button>}
-                <Button variant="red" onClick={removeAgent}>Delete</Button>
+                  ? <Button variant="green" disabled={foreign} onClick={() => validate(true)}>✓ Validate</Button>
+                  : <Button variant="ghost" disabled={foreign} onClick={() => validate(false)}>Revoke</Button>}
+                <Button variant="red" disabled={foreign} onClick={removeAgent}>Delete</Button>
               </div>
               <IOBlock input={sel.last_input} output={sel.last_output} ts={sel.last_run} />
               {sel.algorithm && <details className="text-[11px] text-slate-600">

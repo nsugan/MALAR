@@ -77,6 +77,30 @@ def test_factory_generate_validate_run_reuse():
     assert g2["reused"] and g2["agent_id"] == aid
 
 
+def test_agents_are_domain_scoped_with_optin_cross_domain():
+    db = tempfile.mktemp(suffix=".sqlite")
+    mem = AgentMemory(db)
+    fac = AgentFactory(mem, _MockLLM())
+    a = fac.get_or_generate("MeanA", "compute the mean", domain_id="dom_a")["agent_id"]
+    fac.get_or_generate("MeanB", "compute the mean", domain_id="dom_b")
+    fac.validate_agent(a)
+    for x in mem.all(domain_id="dom_b"):
+        fac.validate_agent(x["id"])
+
+    # each domain sees ONLY its own agents
+    assert {x["name"] for x in mem.all(domain_id="dom_a")} == {"MeanA"}
+    assert {x["name"] for x in mem.all(domain_id="dom_b")} == {"MeanB"}
+
+    # cross-domain opt-in surfaces the OTHER domain's validated agent, flagged
+    cross = {x["name"]: x["cross_domain"] for x in
+             mem.all(domain_id="dom_a", include_cross_domain=True)}
+    assert cross == {"MeanA": False, "MeanB": True}
+
+    # reuse is domain-scoped: same request reuses within the domain, not across domains
+    assert fac.get_or_generate("MeanA", "compute the mean", domain_id="dom_a").get("reused")
+    assert not fac.get_or_generate("MeanA", "compute the mean", domain_id="dom_c").get("reused")
+
+
 def test_records_last_input_and_output():
     import json
     db = tempfile.mktemp(suffix=".sqlite")
