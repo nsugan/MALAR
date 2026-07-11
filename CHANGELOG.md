@@ -9,6 +9,23 @@ The `v2` git tag and `MALAR_V2_backup_*.zip` freeze the V2 state; V4 lives in `C
 Iteration bumped to V4 (folder `MALAR_V4`). First V4 work: a data-flow audit and fixes —
 see `docs/V4_DATAFLOW_FINDINGS.md` for the full findings, evidence, and deferred items.
 
+### Changed — training acceleration (honest) + agent outputs in Train tab
+- **The real bottleneck is LLM calls, not the math.** Per-item deterministic work (ripser
+  PH + small numpy) is ms-scale — GPU/NPU offload of it does not help. So acceleration is
+  applied where it's real: the independent **in-loop agent calls now run concurrently**
+  (`malar/core/accel.py::parallel_map`) — `run_validated_agents` (sandboxed code) and
+  `run_extra_agents` (LLM proposals) overlap, then apply feedback serially. The local LLM
+  (Ollama) already runs on the **RTX 3050** via `gpus: all`; route agent roles to
+  malar-reasoner/fast/vision (LLM tab) to use it instead of the cloud.
+- **Honest device report** at `GET /accel` + a **Compute** status line in the Train tab:
+  shows CUDA device (if any), CPU cores, parallel workers, and states plainly that the
+  **AMD NPU (XDNA) and Radeon iGPU are not wired** (they need an ONNX / Ryzen-AI / DirectML
+  rewrite of the encoders and wouldn't help this small per-item data).
+- **Agent Factory outputs in the Train tab.** A new panel (supervised + unsupervised) shows
+  what each validated factory agent produced on the training data and what it fed back into
+  its parent field, so you can judge the data flow. Populated when "use in training" is on.
+- Tests: `tests/test_accel.py` (parallel_map order/edges; device report is honest about NPU).
+
 ### Changed — Agent Factory
 - **Generated agents can now use any library / do any task.** Removed the `math`/`numpy`-only
   import allowlist and the call/dunder blocklist from `validate.py`, and switched

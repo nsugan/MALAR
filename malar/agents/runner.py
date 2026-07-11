@@ -75,13 +75,15 @@ def run_validated_agents(engine, ctx: dict, domain_id: str, world_ctx_id: str | 
     results = []
     try:
         # Only THIS domain's validated agents run in its training loop (isolation).
-        agents = mem.all(domain_id=domain_id, with_code=True)
+        agents = [a for a in mem.all(domain_id=domain_id, with_code=True) if a.get("validated")]
     except Exception:
         return []
-    for a in agents:
-        if not a.get("validated"):
-            continue
-        run = fac.run(a["id"], ctx)
+    # Run the agents' code CONCURRENTLY (independent sandboxed executions), then apply the
+    # feedback + store serially (engine state is not thread-safe). This overlaps the slow
+    # per-agent work — the real speedup for agent-heavy training. (V4 acceleration)
+    from malar.core.accel import parallel_map
+    runs = parallel_map(lambda a: (a, fac.run(a["id"], ctx)), agents)
+    for a, run in runs:
         parent = parent_of(a["name"], a.get("role", ""))
         if not run.get("ok"):
             results.append({"agent": a["name"], "parent": parent, "ok": False,

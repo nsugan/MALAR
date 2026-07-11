@@ -73,7 +73,8 @@ def run_extra_agents(engine, extra_agents, item, feature_summary, label, ctx_id,
         return out
     ctx_block = (f"=== DOMAIN & DATA CONTEXT ===\n{context}\n=== END CONTEXT ===\n\n"
                  if context else "")
-    for a in extra_agents:
+
+    def _propose(a):
         name = a.get("name") or "agent"
         role = a.get("role") or a.get("description") or ""
         prompt = (
@@ -86,10 +87,17 @@ def run_extra_agents(engine, extra_agents, item, feature_summary, label, ctx_id,
         )
         try:
             resp = llm.reason(prompt, source=f"extra:{name}", max_tokens=256)
+            return name, _parse_action_value(resp), None
         except Exception as e:  # noqa: BLE001
-            out.append({"agent": name, "ok": False, "error": str(e)[:100]})
+            return name, (None, None), str(e)[:100]
+
+    # The extra-agent LLM calls are independent — issue them CONCURRENTLY, then store
+    # each result serially (engine state is not thread-safe). (V4 acceleration)
+    from malar.core.accel import parallel_map
+    for name, (action, value), err in parallel_map(_propose, extra_agents):
+        if err is not None:
+            out.append({"agent": name, "ok": False, "error": err})
             continue
-        action, value = _parse_action_value(resp)
         stored = []
         try:
             if action and engine.c.functional_fields:

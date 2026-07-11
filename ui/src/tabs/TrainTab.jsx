@@ -19,8 +19,65 @@ export default function TrainTab() {
         <Button variant={mode === "supervised" ? "primary" : "ghost"} onClick={() => setMode("supervised")}>Supervised (one-at-a-time)</Button>
         <Button variant={mode === "unsupervised" ? "primary" : "ghost"} onClick={() => setMode("unsupervised")}>Unsupervised (auto)</Button>
       </div>
+      <ComputeStatus />
       {mode === "supervised" ? <Supervised did={activeId} /> : <Unsupervised did={activeId} />}
     </div>
+  );
+}
+
+function ComputeStatus() {
+  const [a, setA] = useState(null);
+  useEffect(() => { api.accel().then(setA).catch(() => {}); }, []);
+  if (!a) return null;
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-2 text-[11px] text-slate-600">
+      <span className="mr-2 font-semibold text-slate-700">Compute:</span>
+      <Chip color={a.cuda ? "green" : "amber"}>{a.cuda ? `GPU: ${a.cuda_device}` : "GPU: not detected"}</Chip>
+      <Chip>CPU cores {a.cpu_count}</Chip>
+      <Chip>parallel agents ×{a.parallel_workers}</Chip>
+      <span className="ml-2 text-slate-500">
+        Per-item math is CPU (ms-scale); training speed is dominated by LLM calls — route agent
+        roles to local Ollama (GPU) in the LLM tab, or reduce per-item LLM. NPU/iGPU are not wired.
+      </span>
+    </div>
+  );
+}
+
+// Outputs the validated Agent-Factory agents produced during training + what each fed back
+// into its parent field — so you can judge the data flow. (Turn on "use in training" in the
+// Agent Factory to populate this.)
+function AgentOutputs({ did, refreshKey }) {
+  const [rows, setRows] = useState([]);
+  const load = () => api.agentOutputs(did).then((r) => setRows(r.outputs || [])).catch(() => {});
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [did, refreshKey]);
+  return (
+    <Card title={`Agent Factory outputs (${rows.length})`} right={<Button variant="ghost" onClick={load}>Refresh</Button>}>
+      <p className="text-[11px] text-slate-500">
+        What each validated factory agent produced on the training data, and what it fed back into
+        its parent field — inspect this to decide the proper data flow &amp; process. Enable
+        <b> use in training</b> in the Agent Factory (and validate agents) to populate it.
+      </p>
+      {rows.length === 0 ? (
+        <p className="mt-2 text-[11px] text-slate-400">No agent outputs yet.</p>
+      ) : (
+        <div className="mt-2 max-h-72 space-y-1 overflow-auto">
+          {rows.slice().reverse().slice(0, 80).map((o, i) => (
+            <div key={o.id || i} className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px]">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <b className="text-slate-700">{o.agent_name}</b>
+                <span className="text-slate-400">→ {o.parent}</span>
+                {o.cls && <Chip>{o.cls}</Chip>}
+                {o.cross_domain && <Chip color="amber">⤳ {o.agent_domain}</Chip>}
+                {o.fed_back && <span className="text-emerald-600">fed: {o.fed_back}</span>}
+              </div>
+              <div className="mt-0.5 truncate font-mono text-slate-600">
+                {o.ok === false ? <span className="text-rose-600">{o.error}</span> : JSON.stringify(o.output)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -33,6 +90,7 @@ function Supervised({ did }) {
   const [dbg, setDbg] = useState(null);
   const [assist, setAssist] = useState(false);
   const [correcting, setCorrecting] = useState(false);
+  const [runKey, setRunKey] = useState(0);
   const refreshDebug = () => { if (debug) api.debug(did).then(setDbg); };
 
   const load = async () => {
@@ -48,7 +106,7 @@ function Supervised({ did }) {
   const act = async (decision, corrections) => {
     setBusy(true);
     await api.trainConfirm(did, { decision, corrections });
-    refresh(); refreshDebug();
+    refresh(); refreshDebug(); setRunKey((k) => k + 1);
     await load();
   };
 
@@ -101,6 +159,7 @@ function Supervised({ did }) {
             onApply={(c) => act("correct", c)} />
         )}
       </Card>
+      <AgentOutputs did={did} refreshKey={runKey} />
       {debug && (
         <div className="space-y-3">
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -153,25 +212,29 @@ function Unsupervised({ did }) {
   const { refresh } = useDomain();
   const [res, setRes] = useState(null);
   const [busy, setBusy] = useState(false);
-  const run = async () => { setBusy(true); const r = await api.trainAuto(did, 18); setRes(r); refresh(); setBusy(false); };
+  const [runKey, setRunKey] = useState(0);
+  const run = async () => { setBusy(true); const r = await api.trainAuto(did, 18); setRes(r); refresh(); setRunKey((k) => k + 1); setBusy(false); };
   return (
-    <Card title="Unsupervised auto-training">
-      <p className="text-sm text-slate-500">Auto-ingest the domain's data: identify, learn values/affordances, and let the Curator update memory + vectors — no per-item confirm.</p>
-      <Button className="mt-2" disabled={busy} onClick={run}>{busy ? "Running…" : "Run auto-training"}</Button>
-      {res && (
-        <div className="mt-3 space-y-2">
-          <div className="flex gap-2 text-sm">
-            <Chip color="indigo">ticks {res.ticks}</Chip>
-            <Chip>memory {res.memory_size}</Chip>
-            <Chip color={res.novelty_rate < 0.15 ? "green" : "amber"}>novelty {res.novelty_rate}</Chip>
+    <div className="space-y-3">
+      <Card title="Unsupervised auto-training">
+        <p className="text-sm text-slate-500">Auto-ingest the domain's data: identify, learn values/affordances, and let the Curator update memory + vectors — no per-item confirm.</p>
+        <Button className="mt-2" disabled={busy} onClick={run}>{busy ? "Running…" : "Run auto-training"}</Button>
+        {res && (
+          <div className="mt-3 space-y-2">
+            <div className="flex gap-2 text-sm">
+              <Chip color="indigo">ticks {res.ticks}</Chip>
+              <Chip>memory {res.memory_size}</Chip>
+              <Chip color={res.novelty_rate < 0.15 ? "green" : "amber"}>novelty {res.novelty_rate}</Chip>
+            </div>
+            <div className="max-h-48 overflow-auto rounded bg-slate-50 p-2 text-[11px] font-mono text-slate-500">
+              {res.progress.map((p) => (
+                <div key={p.tick}>t{p.tick} · {p.class} · {p.memory_action} · mem={p.memory_size}</div>
+              ))}
+            </div>
           </div>
-          <div className="max-h-48 overflow-auto rounded bg-slate-50 p-2 text-[11px] font-mono text-slate-500">
-            {res.progress.map((p) => (
-              <div key={p.tick}>t{p.tick} · {p.class} · {p.memory_action} · mem={p.memory_size}</div>
-            ))}
-          </div>
-        </div>
-      )}
-    </Card>
+        )}
+      </Card>
+      <AgentOutputs did={did} refreshKey={runKey} />
+    </div>
   );
 }

@@ -74,6 +74,13 @@ def health():
     return {"ok": True, "status": SESSION.status.__dict__}
 
 
+@app.get("/accel")
+def accel():
+    """What compute is available and what is / isn't GPU-accelerated (honest report)."""
+    from malar.core.accel import device_report
+    return device_report()
+
+
 @app.post("/configure")
 def configure(cmd: ConfigureCmd):
     return SESSION.configure(domain=cmd.domain, review_mode=cmd.review_mode, budget=cmd.budget)

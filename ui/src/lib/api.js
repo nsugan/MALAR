@@ -17,6 +17,7 @@ const del = (p) => req(p, { method: "DELETE" });
 export const api = {
   // health/legacy
   health: () => req("/health"),
+  accel: () => req("/accel"),
   // domains
   listDomains: () => req("/domains"),
   createDomain: (b) => post("/domains", b),
