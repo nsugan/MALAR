@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from malar.api.control import build_control_router
 from malar.api.domains import router as domains_router
+from malar.api.fs_routes import router as fs_router
 from malar.api.graph import router as graph_router
 from malar.api.llm_routes import router as llm_router
 from malar.api.agent_routes import router as agent_router
@@ -156,3 +157,4 @@ app.include_router(results_router)
 app.include_router(llm_router)
 app.include_router(predict_router)
 app.include_router(agent_router)
+app.include_router(fs_router)

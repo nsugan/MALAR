@@ -82,6 +82,23 @@ def test_planner_embeds_domain_and_data_context_in_every_query():
     assert "128-band signals per sample" in captured["prompt"]
 
 
+def test_fs_browse_lists_subdirs_and_counts(tmp_path):
+    """The folder browser lists server-visible sub-folders + trainable-file counts, so the
+    user can pick a folder that is guaranteed to resolve at training time."""
+    from malar.api.fs_routes import browse
+    (tmp_path / "classA").mkdir()
+    (tmp_path / "classA" / "s1.csv").write_text("1,2\n3,4\n5,6\n7,8\n")
+    (tmp_path / "empty").mkdir()
+    r = browse(str(tmp_path))
+    assert r["error"] is None
+    by_name = {d["name"]: d for d in r["dirs"]}
+    assert by_name["classA"]["n_data_files"] == 1
+    assert by_name["empty"]["n_data_files"] == 0
+    assert r["parent"] and r["roots"]                 # can navigate up + has root shortcuts
+    # a non-existent path is reported, not crashed
+    assert browse(str(tmp_path / "nope"))["error"]
+
+
 def test_folder_analyzer_empty():
     rep = analyze_folder("")
     assert rep.n_files == 0 and "no folder" in rep.summary

@@ -26,6 +26,8 @@ export const api = {
   wipeMemory: () => post(`/domains/wipe-memory`),
   getConfig: (id) => req(`/domains/${id}/config`),
   putConfig: (id, b) => put(`/domains/${id}/config`, b),
+  // filesystem browse (pick a server-visible training-data folder)
+  browse: (path) => req(`/fs/browse?path=${encodeURIComponent(path || "")}`),
   // train
   analyzeFolder: (id, path) => post(`/domains/${id}/analyze-folder`, { path }),
   selectSubset: (id, report) => post(`/domains/${id}/select-subset`, { report }),

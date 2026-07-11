@@ -10,6 +10,9 @@ export default function ConfigureTab() {
   const [saved, setSaved] = useState(false);
   const [plan, setPlan] = useState(null);
   const [planning, setPlanning] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
+  const [bdata, setBdata] = useState(null);
+  const [bloading, setBloading] = useState(false);
 
   useEffect(() => { if (activeId) api.getConfig(activeId).then(setCfg); }, [activeId]);
   if (!activeId) return <Empty />;
@@ -17,6 +20,17 @@ export default function ConfigureTab() {
 
   const addFolder = () => { if (folder.trim()) { setCfg({ ...cfg, data_folders: [...(cfg.data_folders || []), folder.trim()] }); setFolder(""); } };
   const rmFolder = (f) => setCfg({ ...cfg, data_folders: cfg.data_folders.filter((x) => x !== f) });
+  const loadBrowse = async (p) => {
+    setBloading(true);
+    try { setBdata(await api.browse(p)); } catch (e) { setBdata({ error: String(e), dirs: [], roots: [] }); }
+    setBloading(false);
+  };
+  const openBrowse = () => { setBrowsing(true); loadBrowse(""); };
+  const pickFolder = (p) => {
+    if (!p) return;
+    setCfg((c) => ({ ...c, data_folders: Array.from(new Set([...(c.data_folders || []), p])) }));
+    setBrowsing(false);
+  };
   const runPlan = async (apply) => {
     setPlanning(true);
     try {
@@ -43,12 +57,17 @@ export default function ConfigureTab() {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Card title="Training data" right={saved && <Chip color="green">saved</Chip>}>
-        <label className="text-xs text-slate-500">Data folders (server-visible paths)</label>
+        <label className="text-xs text-slate-500">Data folders — browse and pick a server-visible folder</label>
         <div className="mt-1 flex gap-2">
           <input value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="/app/data/<your-folder>"
             className="flex-1 px-2 py-1.5 text-sm" />
           <Button variant="ghost" onClick={addFolder}>Add</Button>
+          <Button onClick={openBrowse}>Browse…</Button>
         </div>
+        {browsing && (
+          <FolderBrowser data={bdata} loading={bloading}
+            onNav={loadBrowse} onPick={pickFolder} onClose={() => setBrowsing(false)} />
+        )}
         <div className="mt-2 space-y-1">
           {(cfg.data_folders || []).map((f) => (
             <div key={f} className="flex items-center justify-between rounded bg-slate-50 px-2 py-1 text-xs">
@@ -152,3 +171,54 @@ const PlanBox = ({ title, children }) => (
   </div>
 );
 const Empty = () => <p className="text-sm text-slate-500">Select or create a domain first.</p>;
+
+function FolderBrowser({ data, loading, onNav, onPick, onClose }) {
+  const d = data || {};
+  return (
+    <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50/40 p-2">
+      <div className="mb-1 flex items-center justify-between">
+        <div className="text-[10px] uppercase tracking-wider text-indigo-600">Browse server folders</div>
+        <button onClick={onClose} className="text-[11px] text-slate-500 hover:text-slate-700">close ✕</button>
+      </div>
+      <div className="mb-2 flex flex-wrap gap-1">
+        {(d.roots || []).map((r) => (
+          <button key={r.path} onClick={() => onNav(r.path)} title={r.path}
+            className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-600 hover:border-indigo-300">
+            {r.name}
+          </button>
+        ))}
+      </div>
+      <div className="mb-2 flex items-center gap-2">
+        {d.parent && (
+          <button onClick={() => onNav(d.parent)}
+            className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px]">⬆ up</button>
+        )}
+        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-slate-600" title={d.path}>{d.path || "—"}</span>
+        <Button variant="green" onClick={() => onPick(d.path)}>
+          Use this folder{d.n_data_files_here ? ` (${d.n_data_files_here}${d.n_data_files_here >= 5000 ? "+" : ""} files)` : ""}
+        </Button>
+      </div>
+      {d.error && <p className="text-[11px] text-rose-600">{d.error}</p>}
+      {loading ? <p className="text-[11px] text-slate-400">loading…</p> : (
+        <div className="max-h-56 space-y-0.5 overflow-auto">
+          {!d.error && (d.dirs || []).length === 0 &&
+            <p className="text-[11px] text-slate-400">no sub-folders here</p>}
+          {(d.dirs || []).map((c) => (
+            <div key={c.path} className="flex items-center justify-between rounded bg-white px-2 py-1 text-[12px] hover:bg-indigo-50">
+              <button onClick={() => onNav(c.path)} className="min-w-0 flex-1 truncate text-left text-slate-700">📁 {c.name}</button>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {c.n_data_files > 0 &&
+                  <span className="rounded bg-emerald-50 px-1 text-[10px] text-emerald-700">{c.n_data_files}{c.n_data_files >= 500 ? "+" : ""} data</span>}
+                <button onClick={() => onPick(c.path)} className="text-[10px] text-indigo-600 hover:underline">use</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="mt-1 text-[10px] text-slate-400">
+        Only folders the server can read are listed (in Docker the project folder is <code>/app</code>).
+        Put your data under the project folder, or mount it into the container, so it appears here.
+      </p>
+    </div>
+  );
+}
