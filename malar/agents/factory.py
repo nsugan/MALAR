@@ -103,16 +103,18 @@ class AgentFactory:
         # -- algorithm (with empty-response retry: drop the domain context) --
         algorithm, ap, err = self._robust(self.llm.algo,
                                           lambda c: _algo_prompt(name, role, c, sample),
-                                          ctx, max_tokens=1200)
+                                          ctx, max_tokens=1600)
         trace["algo"]["prompt"], trace["algo"]["response"] = ap, (algorithm or f"ERROR: {err}")
         if not algorithm:
             return {"reused": False, "generated": False, "stage": "algo",
                     "error": (err or "empty response from the algorithm model"), "trace": trace}
 
         # -- code (empty-response retry too) --
+        # Generous token budget: long agent code was being truncated at 1600 tokens,
+        # cutting off mid-statement (e.g. an unclosed try:) -> "invalid syntax" agents.
         raw, cp, err = self._robust(self.llm.code,
                                     lambda _c: _code_prompt(name, role, algorithm, sample),
-                                    ctx, max_tokens=1600)
+                                    ctx, max_tokens=4096)
         trace["code"]["prompt"], trace["code"]["response"] = cp, (raw or f"ERROR: {err}")
         if not raw:
             return {"reused": False, "generated": False, "stage": "code",
