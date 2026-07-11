@@ -62,16 +62,23 @@ def _parse_action_value(out: str):
     return action, value
 
 
-def run_extra_agents(engine, extra_agents, item, feature_summary, label, ctx_id, llm) -> list:
-    """Each LLM-proposed extra agent proposes an action+value for this item and stores it."""
+def run_extra_agents(engine, extra_agents, item, feature_summary, label, ctx_id, llm,
+                     context: str = "") -> list:
+    """Each LLM-proposed extra agent proposes an action+value for this item and stores it.
+
+    `context` is the consolidated domain + data description, embedded in every agent's
+    query so these orchestrator-spawned agents always have the full domain context."""
     out = []
     if not extra_agents or llm is None:
         return out
+    ctx_block = (f"=== DOMAIN & DATA CONTEXT ===\n{context}\n=== END CONTEXT ===\n\n"
+                 if context else "")
     for a in extra_agents:
         name = a.get("name") or "agent"
         role = a.get("role") or a.get("description") or ""
         prompt = (
-            f"You are MALAR's '{name}' training agent. Your role: {role}.\n"
+            ctx_block
+            + f"You are MALAR's '{name}' training agent. Your role: {role}.\n"
             f"Object class: '{label}'. Feature summary: {feature_summary}.\n"
             "From your role, propose ONE action verb for this object and a relevance VALUE "
             "in [0,1]. Reply STRICTLY as:\n"
@@ -163,9 +170,10 @@ def process_training_item(engine, meta, item, feature_summary, g, label, ctx_id,
         modality = "spectra"
     extra = []
     modres = {"modality": modality, "ok": True}
+    context = meta.consolidated_context() if hasattr(meta, "consolidated_context") else ""
     try:
         extra = run_extra_agents(engine, getattr(meta, "extra_agents", None),
-                                 item, feature_summary, label, ctx_id, llm)
+                                 item, feature_summary, label, ctx_id, llm, context=context)
     except Exception as e:  # noqa: BLE001
         extra = [{"ok": False, "error": str(e)[:100]}]
     try:

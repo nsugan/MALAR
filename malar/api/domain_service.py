@@ -703,8 +703,8 @@ class DomainService:
         from malar.agents.planner import DomainPlanner
 
         meta = self.dm.get(did)
-        plan = DomainPlanner(self.llm).plan_domain(
-            description=meta.data_description or meta.description,
+        # Consolidated domain + data description is embedded in the planner's query.
+        plan = DomainPlanner(self.llm, context=meta.consolidated_context()).plan_domain(
             classes=meta.classes, folder_summary=folder_summary,
             adapter_type=meta.adapter_type)
         if apply:
@@ -727,8 +727,8 @@ class DomainService:
         meta = self.dm.get(did)
         eng = self.dm.engine(did, llm_client=self.llm)
         dims = [f.spec.dim for f in eng.c.functional_fields]
-        return DomainPlanner(self.llm).suggest_object(
-            description=meta.data_description or meta.description,
+        # Consolidated domain + data description is embedded in the identify query.
+        return DomainPlanner(self.llm, context=meta.consolidated_context()).suggest_object(
             feature_summary=summary, candidates=candidates, functional_dims=dims)
 
     # -- per-agent monitoring (the 11 MALAR agents) -------------------

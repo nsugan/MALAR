@@ -1,7 +1,10 @@
 """DomainPlanner — the Orchestrator/Planner + Perception planning brain (LLM-driven).
 
-From a short DESCRIPTION of the training data, the planner calls the LLM (via the
-gateway, alias malar-reasoner) to derive the learning plan:
+The planner is constructed with the CONSOLIDATED domain + data context
+(DomainMeta.consolidated_context) and embeds it in EVERY query it makes — both the
+domain description AND the data description are always present, never one or the other.
+
+From that context the planner calls the LLM (via the gateway) to derive the learning plan:
   * objective fields R (what is good) with directions/targets,
   * functional dims F (the actions to carry out) with candidate actions,
   * processing steps and any EXTRA domain-specific agents needed beyond the regular
@@ -46,16 +49,28 @@ def _extract_json(text: str) -> dict:
 
 
 class DomainPlanner:
-    def __init__(self, llm_client=None):
+    def __init__(self, llm_client=None, context: str = ""):
+        # `context` is the CONSOLIDATED domain + data description (see
+        # DomainMeta.consolidated_context). It is embedded in EVERY query this
+        # planner/orchestrator makes, so the LLM always has both.
         self.llm = llm_client
+        self.context = (context or "").strip()
 
-    # -- Orchestrator: derive the plan from the description -----------
-    def plan_domain(self, description: str, classes: list[str] | None = None,
+    def _ctx_block(self) -> str:
+        """The consolidated domain+data context, prepended to every planner query."""
+        if not self.context:
+            return ""
+        return ("=== DOMAIN & DATA CONTEXT (always applies to this request) ===\n"
+                f"{self.context}\n"
+                "=== END CONTEXT ===\n\n")
+
+    # -- Orchestrator: derive the plan from the domain + data context -
+    def plan_domain(self, classes: list[str] | None = None,
                     folder_summary: str | None = None, adapter_type: str = "synthetic") -> dict:
         classes = classes or []
         prompt = (
-            f"Dataset description:\n{description or '(none provided)'}\n"
-            f"Known classes/labels: {classes or 'unknown'}\n"
+            self._ctx_block()
+            + f"Known classes/labels: {classes or 'unknown'}\n"
             f"Data summary: {folder_summary or 'n/a'}\n"
             f"Modality/adapter: {adapter_type}\n\n"
             "Design the plan. Reply with JSON of this exact shape:\n"
@@ -88,11 +103,11 @@ class DomainPlanner:
         return plan
 
     # -- per-item: identify object + functionalities -----------------
-    def suggest_object(self, description: str, feature_summary: dict,
-                       candidates: list[str], functional_dims: list[str]) -> dict:
+    def suggest_object(self, feature_summary: dict, candidates: list[str],
+                       functional_dims: list[str]) -> dict:
         prompt = (
-            f"Domain: {description or '(none)'}\n"
-            f"Feature summary (topology H0/H1/H2 + spectral): {feature_summary}\n"
+            self._ctx_block()
+            + f"Feature summary (topology H0/H1/H2 + spectral): {feature_summary}\n"
             f"Retrieval candidate classes: {candidates or 'none yet'}\n"
             f"Functional dimensions to assign actions for: {functional_dims}\n\n"
             "Identify the most likely object class and the functional actions to assign. "

@@ -43,6 +43,45 @@ def test_generic_synthetic_domain_trains(tmp_path, monkeypatch):
     config._SETTINGS = None
 
 
+def test_consolidated_context_has_both_descriptions(tmp_path, monkeypatch):
+    from malar.core import config
+    monkeypatch.setenv("MALAR_DATA_DIR", str(tmp_path))
+    config._SETTINGS = None
+    dm = DomainManager()
+    d = dm.create("Widgets", description="inspect widgets for cracks")
+    dm.update_config(d.id, data_description="128-band signals per sample, folder-per-class")
+    ctx = dm.get(d.id).consolidated_context()
+    assert "inspect widgets for cracks" in ctx           # domain description
+    assert "128-band signals per sample" in ctx          # data description
+    config._SETTINGS = None
+
+
+def test_planner_embeds_domain_and_data_context_in_every_query():
+    """The planner/orchestrator must always send BOTH the domain and data description."""
+    from malar.agents.planner import DomainPlanner
+
+    ctx = ("Domain: Widgets\nDomain description: inspect widgets for cracks\n"
+           "Data description: 128-band signals per sample")
+    captured = {}
+
+    class CapLLM:
+        def reason(self, prompt, **kw):
+            captured["prompt"] = prompt
+            # valid-enough JSON for both plan_domain and suggest_object
+            return ('{"objectives":[{"key":"quality","target":0.8}],"functionals":[],'
+                    '"class":"a","affordances":[],"confidence":0.5}')
+
+    p = DomainPlanner(CapLLM(), context=ctx)
+    p.plan_domain(classes=["a", "b"], adapter_type="synthetic")
+    assert "inspect widgets for cracks" in captured["prompt"]
+    assert "128-band signals per sample" in captured["prompt"]
+
+    captured.clear()
+    p.suggest_object(feature_summary={"h0": 1}, candidates=["a"], functional_dims=["response"])
+    assert "inspect widgets for cracks" in captured["prompt"]
+    assert "128-band signals per sample" in captured["prompt"]
+
+
 def test_folder_analyzer_empty():
     rep = analyze_folder("")
     assert rep.n_files == 0 and "no folder" in rep.summary

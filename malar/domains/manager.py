@@ -61,6 +61,19 @@ class DomainMeta:
     created: float = field(default_factory=time.time)
     last_activity: float = field(default_factory=time.time)
 
+    def consolidated_context(self) -> str:
+        """Consolidated domain + data context, embedded in EVERY planner/orchestrator
+        query so the LLM always has BOTH the domain description and the data description
+        (not one or the other). Single source of truth for that block."""
+        dom = (self.description or "").strip() or "(none provided)"
+        dat = (self.data_description or "").strip() or "(none provided)"
+        lines = [f"Domain: {self.name} (id: {self.id})",
+                 f"Domain description: {dom}",
+                 f"Data description: {dat}"]
+        if self.classes:
+            lines.append(f"Known classes: {list(self.classes)}")
+        return "\n".join(lines)
+
 
 def _slug(name: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")

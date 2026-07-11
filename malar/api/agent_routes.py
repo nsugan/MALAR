@@ -184,7 +184,8 @@ def generate_selected(did: str, cmd: SelectedCmd):
     auto-tests each generated agent. The UI calls this per-agent to avoid proxy timeouts."""
     from malar.domains.manager import get_manager
     meta = get_manager().get(did)
-    ctx = cmd.context or (meta.data_description if meta else "") or ""
+    # Embed the consolidated domain + data description in the code/algorithm prompts.
+    ctx = cmd.context or (meta.consolidated_context() if meta else "") or ""
     sample = _sample_ctx(did)
     fac = get_agent_factory()
     out = [fac.get_or_generate(name=a.get("name", "agent"), role=a.get("role", ""),
