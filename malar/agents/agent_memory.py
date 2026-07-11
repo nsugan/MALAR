@@ -19,6 +19,7 @@ import sqlite3
 import tempfile
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -74,10 +75,29 @@ class AgentMemory:
         c = sqlite3.connect(self.db_path, timeout=30.0)
         c.row_factory = sqlite3.Row
         c.execute("PRAGMA busy_timeout=30000")
+        # WAL lets readers proceed WHILE a writer is active — without it, every /agents
+        # poll blocks on any in-flight generate/record_io write (30s busy_timeout stalls).
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("PRAGMA synchronous=NORMAL")
         return c
 
+    @contextmanager
+    def _cx(self):
+        """Short-lived connection that ALWAYS closes (the old `with self._conn()` committed
+        but leaked the connection — hundreds accumulated under polling, worsening lock
+        contention). Commits on success, rolls back on error, closes either way."""
+        c = self._conn()
+        try:
+            yield c
+            c.commit()
+        except Exception:
+            c.rollback()
+            raise
+        finally:
+            c.close()
+
     def _init(self):
-        with self._conn() as c:
+        with self._cx() as c:
             c.execute(
                 """CREATE TABLE IF NOT EXISTS agents(
                     id TEXT PRIMARY KEY, name TEXT, role TEXT, algorithm TEXT, code TEXT,
@@ -98,7 +118,7 @@ class AgentMemory:
             trace: str = "", domain_id: str | None = None) -> str:
         aid = "agent_" + uuid.uuid4().hex[:12]
         emb = embed_text(f"{name} {role}")
-        with self._conn() as c:
+        with self._cx() as c:
             c.execute(
                 """INSERT INTO agents(id,name,role,algorithm,code,embedding,validated,
                    usage_count,provider_algo,provider_code,created,note,trace,domain_id)
@@ -108,7 +128,7 @@ class AgentMemory:
         return aid
 
     def get(self, aid: str) -> dict | None:
-        with self._conn() as c:
+        with self._cx() as c:
             r = c.execute("SELECT * FROM agents WHERE id=?", (aid,)).fetchone()
         return dict(r) if r else None
 
@@ -121,7 +141,7 @@ class AgentMemory:
           return other domains' VALIDATED agents, each flagged `cross_domain=True` — the
           opt-in path the orchestrator uses for complex cross-domain inference.
         """
-        with self._conn() as c:
+        with self._cx() as c:
             rows = [dict(r) for r in c.execute("SELECT * FROM agents ORDER BY created DESC")]
         out = []
         for r in rows:
@@ -148,7 +168,7 @@ class AgentMemory:
         """Persist the LAST input this agent ran on and the output it produced, so the
         Agent Factory can show it for verification. Trimmed + best-effort (never raises)."""
         try:
-            with self._conn() as c:
+            with self._cx() as c:
                 c.execute(
                     "UPDATE agents SET last_input=?, last_output=?, last_run=? WHERE id=?",
                     (json.dumps(_trim_io(input_obj))[:12000],
@@ -157,30 +177,30 @@ class AgentMemory:
             pass
 
     def update_code(self, aid: str, code: str) -> bool:
-        with self._conn() as c:
+        with self._cx() as c:
             cur = c.execute("UPDATE agents SET code=?, validated=0 WHERE id=?", (code, aid))
             return cur.rowcount > 0
 
     def set_note(self, aid: str, note: str) -> None:
-        with self._conn() as c:
+        with self._cx() as c:
             c.execute("UPDATE agents SET note=? WHERE id=?", (note, aid))
 
     def set_trace(self, aid: str, trace: str) -> None:
-        with self._conn() as c:
+        with self._cx() as c:
             c.execute("UPDATE agents SET trace=? WHERE id=?", (trace, aid))
 
     def mark_validated(self, aid: str, validated: bool = True) -> bool:
-        with self._conn() as c:
+        with self._cx() as c:
             cur = c.execute("UPDATE agents SET validated=? WHERE id=?",
                             (1 if validated else 0, aid))
             return cur.rowcount > 0
 
     def bump_usage(self, aid: str) -> None:
-        with self._conn() as c:
+        with self._cx() as c:
             c.execute("UPDATE agents SET usage_count=usage_count+1 WHERE id=?", (aid,))
 
     def delete(self, aid: str) -> bool:
-        with self._conn() as c:
+        with self._cx() as c:
             cur = c.execute("DELETE FROM agents WHERE id=?", (aid,))
             return cur.rowcount > 0
 
@@ -190,7 +210,7 @@ class AgentMemory:
         its OWN validated agents and never silently adopts another domain's."""
         q = embed_text(f"{name} {role}")
         best, best_s = None, threshold
-        with self._conn() as c:
+        with self._cx() as c:
             rows = c.execute("SELECT * FROM agents").fetchall()
         for r in rows:
             if only_validated and not r["validated"]:

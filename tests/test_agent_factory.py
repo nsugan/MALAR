@@ -52,6 +52,14 @@ def test_sandbox_runs_with_full_capabilities():
     assert allowed["ok"] and allowed["output"]["sep"]
 
 
+def test_sandbox_times_out_runaway_agent():
+    # a slow/looping agent must not hang the caller — it returns a timeout result
+    code = ("import time\nclass GeneratedAgent:\n"
+            "    def run(self, ctx):\n        time.sleep(30)\n        return {}\n")
+    out = run_agent_code(code, {"features": []}, timeout=0.5)
+    assert not out["ok"] and out["stage"] == "timeout"
+
+
 def test_embedding_similarity():
     a = embed_text("compute the mean signal")
     b = embed_text("compute mean of the signal")
