@@ -8,7 +8,7 @@ a web UI lets you start, review, then run it seamlessly.
 
 See [`docs/MALAR_MASTER_PLAN.md`](docs/MALAR_MASTER_PLAN.md) for the full design.
 
-See ['./MALAR.pdf'] for the algorithm behind this impelementation, this is still work in progress.
+See ['./MALAR.pdf'](./MALAR.pdf) for the algorithm behind this impelementation, this is still work in progress.
 Welcome for contributing and taking it further.
 
 ## Two architectural laws
