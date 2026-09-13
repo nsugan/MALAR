@@ -8,6 +8,9 @@ a web UI lets you start, review, then run it seamlessly.
 
 See [`docs/MALAR_MASTER_PLAN.md`](docs/MALAR_MASTER_PLAN.md) for the full design.
 
+See ['./MALAR.pdf'] for the algorithm behind this impelementation, this is still work in progress.
+Welcome for contributing and taking it further.
+
 ## Two architectural laws
 1. **Agents decide; tools compute.** Persistence homology, spectral/graph encoding, diffusion, and
    distances run in deterministic Python. The LLM orchestrates, sets weights, hypothesizes labels
